@@ -1,0 +1,151 @@
+---
+---
+---
+
+Vamos a crear un R Markdown completo usando un ejemplo cotidiano: el consumo eléctrico de una casa durante 10 días.
+
+En este ejemplo, veremos una tendencia (el consumo sube porque hace más frío), una estacionalidad (se consume más de noche) y ruido (encendidas aleatorias de luces o electrodomésticos).
+
+## 1. Creación de una Señal Cotidiana
+
+Para entender el procesamiento, simularemos el consumo eléctrico (en kWh) de una casa. Nuestra señal tendrá:
+
+1.  **Tendencia**: El consumo base sube linealmente (ej. por una ola de frío).
+
+2.  **Estacionalidad**: Un ciclo que sube y baja cada día (uso de luces noche/día).
+
+3.  **Ruido**: Picos aleatorios e impredecibles.
+
+```{r}
+# Definimos el tiempo (10 puntos)
+t <- 0:9
+
+# 1. Tendencia: La señal sube 2 unidades por día
+tendencia <- t * 2 
+
+# 2. Ruido: Cambios bruscos aleatorios
+ruido <- c(0, 2, -2, 0, 3, -3, 0, 1, -1, 0)
+
+# 3. Señal Observada (lo que veríamos en un sensor)
+senal_a <- tendencia + ruido
+
+# Lo guardamos en un dataframe
+dato <- data.frame(t = t, a = senal_a)
+
+# Graficamos la señal pura
+plot(dato$t, dato$a, type='b', pch=19, col="black", 
+     main="Señal Original (Tendencia + Ruido)", xlab="Día", ylab="Valor")
+grid()
+```
+
+## 2. Visualización de la Señal Original
+
+El primer paso es observar la señal "sucia". Aquí vemos todo mezclado: la subida de fondo, la onda diaria y los saltos del ruido.
+
+```{r}
+plot(dato$t, dato$a, type = "l", col = "black",
+     main = "Consumo Eléctrico Total (Señal Original)",
+     xlab = "Tiempo (Horas)", ylab = "kWh")
+```
+
+## 3. Filtrado con Medias Móviles (MA)
+
+Usamos el filtro para "limpiar" la señal. El promedio móvil suaviza los picos de ruido.
+
+-   **MA7**: Promedia 7 horas. Elimina el ruido rápido pero mantiene la onda diaria.
+
+-   **MA24**: Promedia un día entero. Al promediar un ciclo completo, **elimina la estacionalidad** y solo nos deja la **tendencia**.
+
+```{r}
+# Longitud de nuestra serie
+n_puntos <- length(dato$a)
+
+# Definimos las ventanas (MA)
+# Usamos una ventana de 24 solo si tenemos más de 24 datos
+ventana_larga <- min(24, n_puntos - 1) 
+ventana_corta <- 7
+
+# Aplicamos los filtros con seguridad
+outMA7  <- filter(dato$a, rep(1/ventana_corta, ventana_corta), circular = TRUE)
+outMA24 <- filter(dato$a, rep(1/ventana_larga, ventana_larga), circular = TRUE)
+
+# El resto del cálculo se mantiene igual
+ruido_extraido <- dato$a - outMA7
+ciclo_extraido  <- outMA7 - outMA24
+
+# Graficamos
+par(mfrow = c(2, 2))
+plot(outMA7, type="l", main=paste("Suavizado MA", ventana_corta), col="blue")
+plot(ruido_extraido, type="l", main="Ruido Extraído", col="cyan")
+plot(outMA24, type="l", main=paste("Tendencia MA", ventana_larga), col="red")
+plot(ciclo_extraido, type="l", main="Ciclo Extraído", col="green")
+```
+
+## 4. Superposición y Verificación
+
+Este gráfico nos permite validar si nuestra descomposición tiene sentido físico.
+
+-   La **línea roja** debe seguir el "camino central" de los datos.
+
+-   La **línea verde** debe mostrar las subidas y bajadas rítmicas del día.
+
+```{r}
+# Configuración del gráfico
+par(mfrow = c(1, 1))
+
+# Definimos un gris transparente para la señal original
+# El cuarto número (0.4) es el alpha (va de 0 a 1)
+gris_transparente <- rgb(0.5, 0.5, 0.5, 0.4)
+
+# Graficamos la señal original
+plot(dato$t, dato$a, type = "l", col = gris_transparente, 
+     main = "Descomposición del Consumo", 
+     xlab = "Horas", ylab = "kWh")
+
+# Superponemos las componentes extraídas
+# as.numeric es importante para quitar atributos de 'filter'
+lines(dato$t, as.numeric(outMA24), col = "red", lwd = 3)    # TENDENCIA
+lines(dato$t, as.numeric(ciclo_extraido), col = "darkgreen") # ESTACIONALIDAD
+
+# Leyenda
+legend("topleft", 
+       legend = c("Original", "Tendencia (MA24)", "Ciclo (Dif)"),
+       col = c("gray", "red", "darkgreen"), 
+       lty = 1, 
+       bty = "n", 
+       lwd = c(1, 3, 1),
+       cex = 0.8)
+```
+
+## 5. Análisis en el Dominio de la Frecuencia (FFT)
+
+En este paso, transformamos la señal para ver qué tan rápido ocurren los cambios. Es como pasar de ver una canción en un osciloscopio a verla en un ecualizador.
+
+```{r}
+# Calculamos la FFT de la señal original y de las componentes extraídas
+fft_a <- Mod(fft(dato$a))
+fft_tendencia <- Mod(fft(outMA24))
+fft_ciclo <- Mod(fft(ciclo_extraido))
+
+# Graficamos el espectro de potencia
+par(mfrow = c(1, 1))
+
+# Señal Original (Referencia)
+plot(fft_a, type="l", col="gray", xlim=c(0, 11), ylim=c(0, 100),
+     main="Espectro de Frecuencias (FFT)", 
+     xlab="Frecuencia", ylab="Magnitud (Energía)")
+
+# Superponemos los espectros de lo que filtramos
+lines(fft_tendencia, col="red", lwd=2)   # Baja frecuencia (Tendencia)
+lines(fft_ciclo, col="darkgreen", lwd=2) # Frecuencia intermedia (Ciclo)
+
+legend("topright", 
+       legend=c("Total", "Espectro Tendencia", "Espectro Ciclo"),
+       col=c("gray", "red", "darkgreen"), lty=1, bty="n")
+```
+
+-   **Roja:** El camino que sigue la señal a lo largo de los días (el "hacia dónde va").
+
+-   **Verde:** El baile rítmico que hace la señal todos los días (el "ritmo").
+
+## Tendencia (Roja) + Ciclo (Verde) = Señal sin Ruido

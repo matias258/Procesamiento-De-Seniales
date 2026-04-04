@@ -1,0 +1,113 @@
+## 1. Introducción y Carga de Datos
+
+En este laboratorio realizamos la descomposición de una serie temporal en sus componentes principales: **tendencia (baja frecuencia)**, **ciclos (frecuencia intermedia)** y **ruido (alta frecuencia)** utilizando filtros de Media Móvil (MA) y la Transformada Rápida de Fourier (FFT).
+
+```{r}
+# Configuración de ruta y lectura
+archivo <- paste0("TS_1.csv")
+
+if (file.exists(archivo)) {
+  dato <- read.csv(archivo)
+  print(paste("Columnas cargadas:", paste(names(dato), collapse = ", ")))
+} else {
+  stop("El archivo TS_1.csv no se encuentra en la ruta especificada.")
+}
+```
+
+## 2. Visualización de las Componentes Originales
+
+Graficamos primero las componentes ideales que componen nuestra señal `a`.
+
+```{r}
+par(mfrow = c(2, 2))
+plot(dato$t, dato$a0, type='l', main="Tendencia (a0)", xlab='Día', ylab='a0', col="darkred")
+plot(dato$t, dato$a1, type='l', main="Estacionalidad Corta (a1)", xlab='Día', ylab='a1', col="darkblue")
+plot(dato$t, dato$a2, type='l', main="Estacionalidad Larga (a2)", xlab='Día', ylab='a2', col="darkgreen")
+plot(dato$t, dato$rn, type='l', main="Ruido Blanco (rn)", xlab='Día', ylab='rn', col="gray")
+
+par(mfrow = c(1, 1))
+plot(dato$t, dato$a, type='l', main="Señal Completa (a)", xlab='Día', ylab='a')
+```
+
+## 3. Descomposición con Filtros de Media Móvil (MA)
+
+Aplicamos filtros pasabajos sucesivos para aislar las componentes. El filtro MA suaviza la señal promediando los valores en una ventana de tiempo.
+
+```{r}
+# MA7: Filtro de ventana corta (1 semana)
+outMA7 <- filter(dato$a, rep(1/7, 7), circular = TRUE)
+difMA7 <- dato$a - outMA7 # Alta frecuencia extraída
+
+# MA21: Filtro de ventana larga (3 semanas)
+outMA21 <- filter(dato$a, rep(1/21, 21), circular = TRUE)
+difMA21 <- outMA7 - outMA21 # Frecuencia intermedia extraída
+
+# Visualización del proceso de filtrado
+par(mfrow = c(2, 2))
+plot(dato$t, outMA7, type='l', col="black", main="Suavizado MA7")
+plot(dato$t, difMA7, type='l', col="blue", main="Residuo Alta Frecuencia (a - MA7)")
+plot(dato$t, outMA21, type='l', col="red", main="Suavizado MA21")
+plot(dato$t, difMA21, type='l', col="green", main="Ciclo Intermedio (MA7 - MA21)")
+```
+
+### Superposición en el Dominio del Tiempo
+
+Comparamos cómo se sitúan las componentes extraídas respecto a la señal suavizada original.
+
+```{r}
+# Configuración para un solo gráfico
+par(mfrow = c(1, 1))
+
+# Gráfico principal (MA7 como base)
+plot(dato$t, outMA7, type='l', ylim=c(-10, 30), 
+     xlab='Día', ylab='Valor', 
+     main="Superposición de Componentes", 
+     col='black', lwd=2)
+
+# Agregamos las líneas de las demás componentes
+lines(dato$t, difMA7, col='blue')    # Ruido (Alta frecuencia)
+lines(dato$t, outMA21, col='red', lwd=2)   # Tendencia (Baja frecuencia)
+lines(dato$t, difMA21, col='green') # Estacionalidad (Frecuencia intermedia)
+
+legend("topleft", 
+       legend = c("MA7 (Base)", "Residuo (Azul)", "Tendencia (Roja)", "Ciclo (Verde)"),  
+       col = c("black", "blue", "red", "green"), 
+       lty = 1, 
+       bty = "n", 
+       cex = 0.8)
+```
+
+## 4. Análisis en el Dominio de la Frecuencia (FFT)
+
+Utilizamos la **Fast Fourier Transform** para observar el espectro de potencias. Esto nos permite validar que los filtros están actuando sobre los rangos de frecuencia correctos.
+
+```{r}
+# Cálculo de magnitudes
+fft.a <- Mod(fft(dato$a))
+fft.outMA7 <- Mod(fft(outMA7))
+fft.difMA7 <- Mod(fft(difMA7))
+fft.outMA21 <- Mod(fft(outMA21))
+fft.difMA21 <- Mod(fft(difMA21))
+
+# Gráfico del Espectro
+plot(fft.a, type='l', col='black', lty=2, ylim=c(0, 800), xlim=c(0, 128),
+     main="Análisis Espectral (FFT)", xlab="Frecuencia", ylab="Magnitud")
+
+lines(fft.outMA7, col='black')
+lines(fft.difMA7, col='blue')
+lines(fft.outMA21, col='red')
+lines(fft.difMA21, col='green')
+
+legend("topright", legend=c("Original (punteada)", "MA7", "Dif MA7 (Alta)", "MA21 (Baja)", "Dif MA21 (Media)"),
+       col=c("black", "black", "blue", "red", "green"), lty=c(2, 1, 1, 1, 1), cex=0.8)
+```
+
+Fin del informe - Procesamiento de Señales
+
+------------------------------------------------------------------------
+
+### ¿Cómo lo ejecuto?
+
+1.  En RStudio, hacé clic en el botón \*\*"Knit"\*\* (el ícono del ovillo de lana) arriba de todo.
+2.  Elegí \*\*"Knit to HTML"\*\*.
+3.  R va a procesar todo y te va a abrir una ventana con un reporte limpio, con tablas de contenido navegables y los gráficos incrustados.
