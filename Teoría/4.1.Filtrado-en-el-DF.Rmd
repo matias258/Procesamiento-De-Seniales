@@ -1,0 +1,185 @@
+---
+title: "Análisis de Series Temporales y Filtrado en el Dominio de la Frecuencia"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 4, warning = FALSE, message = FALSE)
+```
+
+## Introducción
+
+En este análisis construimos una señal artificial compuesta por múltiples componentes (tonos sinusoidales, un nivel de continua y ruido aleatorio), la analizamos en el **dominio de la frecuencia** mediante la Transformada de Fourier Discreta (FFT), y aplicamos un **filtro pasa-altos** para aislar las componentes de alta frecuencia, eliminando el ruido y las oscilaciones lentas.
+
+---
+
+## 1. Generación de la línea de tiempo y las componentes de la señal
+
+Definimos una señal discreta de `N = 256` muestras. A partir de esa línea de tiempo construimos tres sinusoides de distintas frecuencias y amplitudes, un nivel de continua (DC) constante, y una componente de ruido gaussiano.
+
+```{r componentes}
+N        <- 256
+tiempo   <- 0:(N - 1)
+
+# Sinusoide de 2 ciclos en la ventana
+seno2    <- 1 * sin(2  * 2 * pi * tiempo / N)
+
+# Sinusoide de 10 ciclos en la ventana
+seno10   <- 1 * sin(10 * 2 * pi * tiempo / N)
+
+# Sinusoide de 20 ciclos en la ventana, con el doble de amplitud
+seno20   <- 2 * sin(20 * 2 * pi * tiempo / N)
+
+# Componente de continua (nivel constante = 1)
+niveldc  <- rep(1, N)
+
+# Ruido gaussiano de media 0 y desviación estándar 0.5
+set.seed(42)   # fijamos semilla para reproducibilidad
+nivelruido <- rnorm(N, mean = 0, sd = 0.5)
+```
+
+Visualizamos cada componente por separado:
+
+```{r plot_componentes, fig.cap="Componentes individuales de la señal."}
+plot(tiempo, seno20,    type = "l", col = "steelblue",  lwd = 1.5,
+     ylim = c(-3, 3), ylab = "Amplitud", xlab = "Tiempo (muestras)",
+     main = "Componentes individuales de la señal")
+lines(tiempo, seno2,    col = "tomato",    lwd = 1.5)
+lines(tiempo, seno10,   col = "seagreen",  lwd = 1.5)
+lines(tiempo, niveldc,  col = "purple",    lwd = 1.5, lty = 2)
+lines(tiempo, nivelruido, col = "gray50",  lwd = 1)
+legend("topright", bty = "n",
+       legend = c("seno20 (20 ciclos, A=2)", "seno2 (2 ciclos, A=1)",
+                  "seno10 (10 ciclos, A=1)", "Nivel DC", "Ruido"),
+       col    = c("steelblue", "tomato", "seagreen", "purple", "gray50"),
+       lwd    = c(1.5, 1.5, 1.5, 1.5, 1),
+       lty    = c(1, 1, 1, 2, 1))
+```
+
+---
+
+## 2. Combinación de las componentes
+
+Sumamos todas las componentes para obtener la señal resultante `seno21020dcruido`:
+
+```{r combinacion}
+seno21020dcruido <- seno2 + seno10 + seno20 + niveldc + nivelruido
+```
+
+---
+
+## 3. Transformada de Fourier Discreta (FFT)
+
+Aplicamos la FFT para pasar la señal al **dominio de la frecuencia**. El módulo de la transformada nos indica la energía presente en cada frecuencia discreta.
+
+```{r fft}
+fft.seno21020dcruido <- fft(seno21020dcruido)
+```
+
+```{r plot_tiempo_freq, fig.cap="Izquierda: señal en el dominio del tiempo. Derecha: espectro de amplitud (módulo de la FFT)."}
+op <- par(mfrow = c(1, 2))
+
+plot(tiempo, seno21020dcruido, type = "l", col = "steelblue",
+     xlab = "Tiempo (muestras)", ylab = "Amplitud",
+     main = "Señal combinada (dominio del tiempo)")
+
+plot(Mod(fft.seno21020dcruido), type = "l", col = "tomato",
+     xlab = "Índice de frecuencia", ylab = "|FFT|",
+     main = "Espectro de amplitud (dominio de la frecuencia)")
+
+par(op)
+```
+
+### Interpretación del espectro
+
+- **Pico en el índice 0** (extremo izquierdo): corresponde a la componente de continua (DC), es decir, el nivel constante igual a 1.
+- **Tres pares de picos simétricos**: reflejan las tres sinusoides (2, 10 y 20 ciclos). Cada tono puro produce un pico en su frecuencia positiva y uno especular en la frecuencia negativa (segunda mitad del espectro), lo que es característico de la FFT real.
+- **Energía difusa de baja amplitud** entre los picos: es el ruido gaussiano, distribuido a lo largo de todas las frecuencias.
+
+> **Nota:** Los picos más altos en el centro del espectro corresponden a la sinusoide de 20 ciclos, cuya amplitud es el doble de las demás.
+
+---
+
+## 4. Diseño del filtro pasa-altos en el dominio de la frecuencia
+
+El filtrado en frecuencia es conceptualmente simple: multiplicamos la FFT de la señal por una máscara binaria (`filtroDF`) que vale 0 en las frecuencias que queremos eliminar y 1 en las que queremos conservar.
+
+En este caso diseñamos un **filtro pasa-altos** con frecuencia de corte `fc = 15`. Ponemos a cero todos los índices de frecuencia menores que 15 (bajas frecuencias) y sus simétricos al final del vector (frecuencias negativas correspondientes).
+
+```{r filtro}
+filtroDF <- rep(1, N)
+
+banda.filtro <- 15   # frecuencia de corte fc = 15
+
+# Eliminar bajas frecuencias (incluyendo DC y tonos de 2 y 10 ciclos)
+filtroDF[1:banda.filtro]            <- 0
+# Eliminar sus frecuencias negativas simétricas
+filtroDF[(N - 2 - banda.filtro):N] <- 0
+```
+
+```{r plot_filtro, fig.cap="Izquierda: máscara del filtro en el dominio de la frecuencia. Derecha: espectro de la señal filtrada."}
+# Aplicar el filtro: multiplicar la FFT por la máscara
+fft.seno21020dcruidoDF <- filtroDF * fft.seno21020dcruido
+
+op <- par(mfrow = c(1, 2))
+
+plot(tiempo, filtroDF, type = "l", col = "purple", lwd = 1.5,
+     ylim = c(-0.1, 1.2),
+     xlab = "Índice de frecuencia", ylab = "Ganancia",
+     main = "Máscara del filtro pasa-altos")
+
+plot(Mod(fft.seno21020dcruidoDF), type = "l", col = "tomato",
+     xlab = "Índice de frecuencia", ylab = "|FFT filtrada|",
+     main = "Espectro tras el filtro pasa-altos")
+
+par(op)
+```
+
+El espectro resultante muestra únicamente los picos correspondientes a la sinusoide de 20 ciclos; el DC, las sinusoides lentas y el ruido de baja frecuencia fueron eliminados.
+
+---
+
+## 5. Transformada inversa: vuelta al dominio del tiempo
+
+Una vez filtrada la señal en frecuencia, aplicamos la **FFT inversa** (`inverse = TRUE`) para recuperar la señal en el dominio del tiempo. Dividimos por `N` para normalizar correctamente.
+
+```{r ifft}
+seno21020dcruidoDF <- Re(fft(fft.seno21020dcruidoDF, inverse = TRUE) / N)
+```
+
+```{r plot_resultado, fig.cap="Señal filtrada (negro) vs. sinusoide de referencia de 20 ciclos (rojo)."}
+plot(tiempo, seno21020dcruidoDF, type = "l", col = "steelblue", lwd = 1.5,
+     xlab = "Tiempo (muestras)", ylab = "Amplitud",
+     main = "Señal filtrada vs. componente de 20 ciclos (referencia)")
+lines(tiempo, seno20, col = "tomato", lwd = 2, lty = 2)
+legend("topright", bty = "n",
+       legend = c("Señal filtrada", "seno20 (referencia)"),
+       col    = c("steelblue", "tomato"),
+       lwd    = c(1.5, 2), lty = c(1, 2))
+```
+
+---
+
+## 6. Conclusiones
+
+| Etapa | Resultado |
+|---|---|
+| Síntesis de la señal | Combinación de 3 sinusoides + DC + ruido |
+| FFT | Espectro con 3 pares de picos + pico en DC + ruido difuso |
+| Filtro pasa-altos (fc = 15) | Conserva solo el tono de 20 ciclos |
+| FFT inversa | Señal reconstruida, prácticamente idéntica a `seno20` |
+
+El procedimiento ilustra el flujo clásico del **filtrado espectral**:
+
+1. Transformar la señal al dominio de la frecuencia (FFT).
+2. Multiplicar por una máscara de filtro (diseñada según los requerimientos).
+3. Volver al dominio del tiempo mediante la FFT inversa.
+
+Este enfoque es especialmente poderoso cuando las componentes de interés y las de interferencia están bien separadas en frecuencia, como ocurre en este ejemplo.
