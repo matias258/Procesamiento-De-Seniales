@@ -1,0 +1,227 @@
+---
+title: "Convolución y Correlación en Tiempo Discreto"
+author: "Procesamiento de Señales"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 9,
+  fig.height = 4
+)
+```
+
+------------------------------------------------------------------------
+
+# Introducción
+
+La **convolución** y la **correlación** son dos operaciones fundamentales en el procesamiento de señales digitales. Ambas describen cómo dos señales interactúan entre sí, aunque con propósitos distintos:
+
+-   La **convolución** modela la respuesta de un sistema lineal e invariante en el tiempo (LTI) ante una señal de entrada. Es la operación matemática central en el análisis de filtros digitales.
+-   La **correlación cruzada** mide la similitud entre dos señales en función de un desplazamiento temporal (*lag*), siendo clave en detección de patrones, radar, sonar y sincronización.
+
+En este documento se trabaja con señales en **Dominio del Tiempo (DT)** de longitud $N = 256$ muestras.
+
+------------------------------------------------------------------------
+
+# Convolución en Dominio del Tiempo (DT)
+
+## Definición matemática
+
+La convolución discreta entre dos señales $f_1[n]$ y $f_2[n]$ se define como:
+
+$$
+(f_1 * f_2)[n] = \sum_{k=0}^{n} f_1[k] \cdot f_2[n - k]
+$$
+
+Esta operación puede interpretarse como el "deslizamiento" de una señal invertida sobre la otra, acumulando productos punto a punto.
+
+## Señales de entrada
+
+Se definen dos señales de prueba:
+
+-   $f_1[n]$: pulso rectangular de amplitud 1 entre las muestras 100 y 200.
+-   $f_2[n]$: exponencial decreciente $f_2[n] = e^{-0.03 \cdot n}$, que modela la respuesta impulsional de un sistema de primer orden.
+
+```{r senales-entrada}
+N = 256
+tiempo = 0:(N - 1)
+
+# f1: pulso rectangular
+f1 = rep(0, N)
+f1[100:200] = 1
+
+# f2: exponencial decreciente
+f2 = 1 * exp(-0.03 * tiempo)
+
+op <- par(mfrow = c(1, 2))
+plot(tiempo, f1, type = 'l')
+plot(tiempo, f2, type = 'l')
+```
+
+> **Interpretación:** $f_1$ simula una señal de entrada (estímulo de duración finita), mientras que $f_2$ representa la respuesta impulsional de un sistema que decae exponencialmente. Su convolución dará la respuesta del sistema ante dicho estímulo.
+
+------------------------------------------------------------------------
+
+## Algoritmo de convolución en el dominio del tiempo
+
+La implementación directa de la suma de convolución se realiza mediante dos lazos anidados. Para cada instante $i$, se acumula la suma de productos $f_1[j] \cdot f_2[i - j + 1]$.
+
+```{r convolucion-tiempo}
+# Algoritmo de convolución en el dominio del tiempo
+f3 = rep(NA, N)
+
+for(i in 1:N)
+{
+  suma = 0
+  j = 1
+  while(j <= i)
+  {
+    suma = suma + f1[j] * f2[i - j + 1]
+    j = j + 1
+  }
+  f3[i] = suma
+  print(i)
+}
+
+plot(tiempo, f3, type = 'l', col = 'red')
+```
+
+> **Nota:** Este algoritmo tiene complejidad $\mathcal{O}(N^2)$. Para señales largas, resulta costoso computacionalmente. La alternativa eficiente es utilizar la Transformada de Fourier.
+
+------------------------------------------------------------------------
+
+## Convolución mediante la Transformada de Fourier Discreta (FFT)
+
+El **Teorema de la Convolución** establece que la convolución en el dominio del tiempo equivale a una multiplicación punto a punto en el dominio de la frecuencia:
+
+$$
+\mathcal{F}\{f_1 * f_2\} = \mathcal{F}\{f_1\} \cdot \mathcal{F}\{f_2\}
+$$
+
+Por lo tanto, es posible calcular la convolución como:
+
+$$
+f_3 = \mathcal{F}^{-1}\left\{ \mathcal{F}\{f_1\} \cdot \mathcal{F}\{f_2\} \right\}
+$$
+
+Este enfoque tiene complejidad $\mathcal{O}(N \log N)$ gracias al algoritmo FFT.
+
+```{r convolucion-fft}
+# Convolución en el dominio de la frecuencia (DFT)
+fft.f1 = fft(f1)
+fft.f2 = fft(f2)
+
+op <- par(mfrow = c(1, 2))
+plot(Mod(fft.f1), type = 'l')
+plot(Mod(fft.f2), type = 'l')
+
+fft.f3 = fft.f1 * fft.f2
+plot(Mod(fft.f3), type = 'l')
+
+# Transformada de Fourier Inversa
+f3b = Re(fft(fft.f3, inverse = TRUE) / N)
+plot(tiempo, f3b, type = 'l')
+lines(tiempo, f3, col = 'red')
+```
+
+> **Verificación:** La línea roja corresponde a la convolución calculada directamente en el tiempo ($f_3$), y la negra a la obtenida via FFT ($f_{3b}$). La superposición confirma que ambos métodos son equivalentes.
+
+------------------------------------------------------------------------
+
+## Convolución con la función `convolve()`
+
+R dispone de la función `convolve()`, que internamente utiliza la FFT. Esto la hace eficiente y equivalente al método anterior.
+
+```{r convolve-funcion}
+# Convolución con convolve (internamente usa la Transformada de Fourier)
+f1f2 = convolve(f1, f2, conj = FALSE)
+plot(tiempo, f1f2, type = 'l')
+```
+
+------------------------------------------------------------------------
+
+# Correlación Cruzada
+
+## Definición matemática
+
+La **correlación cruzada** entre dos señales $f_1[n]$ y $f_2[n]$ mide su similitud en función de un desfase $\tau$:
+
+$$
+R_{f_1 f_2}[\tau] = \sum_{n} f_1[n] \cdot f_2[n + \tau]
+$$
+
+A diferencia de la convolución, **no se invierte** ninguna de las señales. En R, `convolve()` con el argumento `conj = TRUE` calcula la correlación cruzada.
+
+## Correlación cruzada de $f_1$ y $f_2$
+
+```{r correlacion-f1f2}
+# Correlación cruzada con convolve (conj = TRUE)
+f1f2 = convolve(f1, f2, conj = TRUE)
+plot(tiempo, f1f2, type = 'l')
+```
+
+> **Interpretación:** El pico de la correlación indica el desfase para el cual $f_1$ y $f_2$ son más similares. Dado que $f_2$ es una exponencial de soporte infinito y $f_1$ es un pulso finito, la correlación refleja la "superposición máxima" entre ambas.
+
+------------------------------------------------------------------------
+
+## Correlación cruzada de dos pulsos rectangulares
+
+Una aplicación clásica de la correlación cruzada es la **detección de retardo** entre dos señales similares. Se definen dos pulsos rectangulares idénticos con diferente posición temporal:
+
+-   **`p5d5`**: pulso de 5 muestras con inicio en la muestra 5.
+-   **`p5d25`**: pulso de 5 muestras con inicio en la muestra 25.
+
+El desfase entre ambos es de **20 muestras**.
+
+```{r pulsos-rectangulares}
+# Correlación cruzada de dos pulsos
+# p5d5: pulso de 5 muestras con un delay de 5 muestras
+p5d5 = rep(0, N)
+p5d5[5:10] = 1
+
+p5d25 = rep(0, N)
+p5d25[25:30] = 1
+
+plot(tiempo, p5d5, type = 'l', ylab = 'p5d5 & p5d25')
+lines(tiempo, p5d25, col = 'red')
+```
+
+## Función de Correlación Cruzada (CCF)
+
+La función `ccf()` calcula y grafica la correlación cruzada normalizada para un rango de *lags* definido. El pico en el gráfico indica el desplazamiento para el cual las señales están mejor alineadas.
+
+```{r ccf}
+# Cross Correlation Function
+ccf(p5d5, p5d25, lag.max = 50)
+```
+
+> **Interpretación:** El pico de la CCF aparece en $\tau = -20$ (o $+20$ según la convención), lo que indica que `p5d25` es una versión de `p5d5` retrasada 20 muestras. Esta propiedad es la base del **método de detección de retardo** (*time delay estimation*), ampliamente utilizado en telecomunicaciones, acústica y geofísica.
+
+------------------------------------------------------------------------
+
+# Resumen
+
+| Operación | Dominio | Complejidad | Función en R |
+|------------------|------------------|------------------|------------------|
+| Convolución directa | Tiempo | $\mathcal{O}(N^2)$ | Lazo `for`/`while` |
+| Convolución via FFT | Frecuencia | $\mathcal{O}(N \log N)$ | `fft()` + `fft(inverse=TRUE)` |
+| Convolución (función R) | Frecuencia | $\mathcal{O}(N \log N)$ | `convolve(..., conj=FALSE)` |
+| Correlación cruzada | Frecuencia | $\mathcal{O}(N \log N)$ | `convolve(..., conj=TRUE)` |
+| CCF normalizada | Tiempo | — | `ccf()` |
+
+------------------------------------------------------------------------
