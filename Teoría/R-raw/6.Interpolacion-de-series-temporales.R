@@ -1,0 +1,351 @@
+# Caso 1: Aumentar la frecuencia de muestreo
+
+# Carga de datos (asumiendo que el CSV está en el mismo directorio)
+dos.locales = read.csv('DosLocales.csv')
+print(names(dos.locales))
+# [1] "X"      "t"      "localA" "localB"
+
+# Aumentar la frecuencia de muestreo
+N = length(dos.locales$localA)
+print(paste('N =', N))
+
+# Interpolación lineal
+localAfal = approx(dos.locales$t, dos.locales$localA, n = 3 * N)
+
+# Interpolación por splines
+localAfas = spline(dos.locales$t, dos.locales$localA, n = 3 * N)
+
+# Visualización de la comparación de interpolaciones
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120))
+
+# Visualización con leyenda
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Comparación de Métodos de Interpolación', 
+     xlab = 'días', ylab = 'ventas k$', 
+     xlim = c(45, 55), 
+     ylim = c(min(dos.locales$localA[45:55]) - 5, max(dos.locales$localA[45:55]) + 5))
+
+# Agregar puntos originales en negro
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Dibujar líneas verticales discontinuas para marcar los días originales
+for(j in 1:N)
+{
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Graficar interpolación lineal (approx) en rojo
+lines(localAfal$x, localAfal$y, col = 'red', lwd = 1)
+points(localAfal$x, localAfal$y, pch = 20, col = 'red', cex = 0.8)
+
+# Graficar interpolación por splines en azul/puntos verdes
+lines(localAfas$x, localAfas$y, col = 'blue', lwd = 1)
+points(localAfas$x, localAfas$y, pch = 20, col = 'green', cex = 0.8)
+
+# AGREGAR LEYENDA
+legend("topleft", 
+       legend = c("Original", "Interpolación Lineal", "Interpolación Spline"), 
+       col = c("black", "red", "blue"), 
+       lty = c(1, 1, 1),      
+       pch = c(20, 20, 20),   
+       pt.bg = c(NA, NA, "green"), 
+       bty = "o",             
+       bg = "white")          
+
+
+# Cálculo de la FFT y el Módulo
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Definición de vectores de tiempo
+tiempo = 0:(N-1)
+tiempo3 = 0:(3*N-1)
+
+# Configuración de frecuencia para la señal original
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo/N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de frecuencia para la señal interpolada
+FrecuenciaMuestreo = 3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (3*N)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Graficación de los resultados
+plot(Frecuencia, fft.localA, type='l', xlim=c(0,0.1))
+lines(FrecuenciaInterpolada, fft.localAfal / 3, col='red')
+lines(FrecuenciaInterpolada, fft.localAfas / 3, col='green')
+
+#######################################################################
+
+# Caso 2: Disminuir la frecuencia de muestreo
+
+N = length(dos.locales$localA)
+print(paste('N =', N))
+
+# Remuestreo (submuestreo)
+localAfal = approx(dos.locales$t, dos.locales$localA, n = N/3)
+localAfas = spline(dos.locales$t, dos.locales$localA, n = N/3)
+
+# Gráfico principal
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120)) 
+
+# Puntos originales
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Líneas verticales
+for (j in 1:N) {
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Interpolación lineal
+lines(localAfal$x, localAfal$y, col = 'red')
+points(localAfal$x, localAfal$y, pch = 20, col = 'red')
+
+# Interpolación por spline
+lines(localAfas$x, localAfas$y, col = 'blue')
+points(localAfas$x, localAfas$y, pch = 20, col = 'green')
+
+# --- AGREGANDO LA LEYENDA ---
+legend("topright", 
+       legend = c("Original", "Lineal (approx)", "Spline"), 
+       col = c("black", "red", "blue"), 
+       lty = 1,             
+       pch = 20,            
+       bg = "white",        
+       cex = 0.8)           
+
+# Cálculo de la FFT y el Módulo para las tres señales
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Definición de los vectores de tiempo/índices
+tiempo = 0:(N-1)
+tiempo3 = 0:(N/3)
+
+# Configuración de frecuencia para la señal original (Fs = 1)
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo / N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de frecuencia para las señales submuestreadas (Fs = 1/3)
+FrecuenciaMuestreo = 1/3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (N/3)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Configuración de la ventana gráfica (1 fila, 1 columna)
+op <- par(mfrow = c(1, 1))
+
+# Graficación del espectro de magnitud
+plot(Frecuencia, fft.localA, type = 'l', xlim = c(0, 0.1))
+
+# Añadir las líneas de las señales submuestreadas (multiplicadas por 3 para compensar)
+lines(FrecuenciaInterpolada, 3 * fft.localAfal, col = 'red')
+lines(FrecuenciaInterpolada, 3 * fft.localAfas, col = 'green')
+
+#################
+# A veces es conveniente hacerle un fitrado pasa-bajos antes a la serie temporal
+################
+
+# Caso 2: Disminuir la frecuencia de muestreo, con filtrado PB
+
+N = length(dos.locales$localA)
+print(paste('N =', N))
+
+# Aplicación de un filtro de media móvil (Filtro Pasa-Bajos)
+# rep(1/7, 7) crea un vector de 7 elementos con valor 1/7 cada uno
+localAma = filter(dos.locales$localA, rep(1/7, 7), circular = TRUE)
+
+# Remuestreo (submuestreo) basado en la señal filtrada
+localAfal = approx(dos.locales$t, localAma, n = N/3)
+localAfas = spline(dos.locales$t, localAma, n = N/3)
+
+# Gráfico de la señal original (línea punteada)
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120), lty = 3)
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Añadir la señal filtrada (localAma)
+lines(dos.locales$t, localAma, type = 'l')
+points(dos.locales$t, localAma, pch = 20, col = 'black')
+
+# Rejilla de líneas verticales
+for (j in 1:N) {
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Interpolación lineal de la señal filtrada (rojo)
+lines(localAfal$x, localAfal$y, col = 'red')
+points(localAfal$x, localAfal$y, pch = 20, col = 'red')
+
+# Interpolación por spline de la señal filtrada (línea azul, puntos verdes)
+lines(localAfas$x, localAfas$y, col = 'blue')
+points(localAfas$x, localAfas$y, pch = 20, col = 'green')
+
+# --- AGREGANDO LA LEYENDA ---
+legend("bottomleft", 
+       legend = c("Original (Punteada)", "Filtrada (MA)", "Interp. Lineal", "Interp. Spline"), 
+       col = c("black", "black", "red", "blue"), 
+       lty = c(3, 1, 1, 1), 
+       pch = 20, 
+       pt.bg = c(NA, NA, NA, "green"), # Opcional: para resaltar el punto verde del spline
+       bg = "white",
+       cex = 0.8)
+
+# Cálculo de la Magnitud de la FFT para las tres señales
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Vectores de tiempo/muestras
+tiempo = 0:(N-1)
+tiempo3 = 0:(N/3)
+
+# Eje de frecuencias para la señal original (Fs = 1)
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo / N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Eje de frecuencias para las señales diezmadas (Fs = 1/3)
+FrecuenciaMuestreo = 1/3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (N/3)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Configuración del gráfico
+op <- par(mfrow = c(1, 1))
+
+# Gráfico del espectro original
+plot(Frecuencia, fft.localA, type = 'l', xlim = c(0, 0.1))
+
+# Añadir espectros submuestreados con compensación de amplitud (* 3)
+lines(FrecuenciaInterpolada, 3 * fft.localAfal, col = 'red')
+lines(FrecuenciaInterpolada, 3 * fft.localAfas, col = 'green')
+
+#######################################################################
+# Caso 3: Muestreo uniforme
+
+# Lectura del archivo CSV usando una ruta almacenada en la variable 'dir'
+dato.rr = read.csv('RR.csv')
+
+# Imprimir los nombres de las columnas para verificar la carga
+print(names(dato.rr))
+# El resultado esperado es: "t" "RR"
+
+# Graficación de los datos
+# t: tiempo en segundos, RR: intervalo en milisegundos
+plot(dato.rr$t, dato.rr$RR, type='l', ylab='RR (ms)', xlab='tiempo (s)')
+
+# Añadir los puntos a la línea del gráfico
+points(dato.rr$t, dato.rr$RR, pch=20)
+
+plot(dato.rr$t, dato.rr$RR, type='l', ylab='RR (ms)', xlab='tiempo (s)', 
+     xlim=c(10, 20), ylim=c(600, 1200), main="Interpolación de Tacograma")
+points(dato.rr$t, dato.rr$RR, pch=20)
+
+# Dibujar líneas verticales en cada latido original detectado
+N = length(dato.rr$t)
+for (j in 1:N) {
+  abline(v = dato.rr$t[j], lty = 2, col="gray")
+}
+
+# Nmuestro para una frecuencia de 4 Hz (remuestreo uniforme)
+Nmuestro = as.integer(4 * max(dato.rr$t))
+
+# Interpolaciones
+RRlineal = approx(dato.rr$t, dato.rr$RR, n = Nmuestro)
+RRspline = spline(dato.rr$t, dato.rr$RR, n = Nmuestro)
+
+# Añadir interpolación lineal (rojo)
+lines(RRlineal$x, RRlineal$y, col = 'red')
+points(RRlineal$x, RRlineal$y, pch = 20, col = 'red')
+
+# Añadir interpolación por spline (azul/verde)
+lines(RRspline$x, RRspline$y, col = 'blue')
+points(RRspline$x, RRspline$y, pch = 20, col = 'green')
+
+# Agregamos una leyenda para que sea profesional
+legend("topright", 
+       legend=c("Original", "Lineal (4Hz)", "Spline (4Hz)"),
+       col=c("black", "red", "blue"), 
+       lty=1, pch=20, bg="white", cex=0.8)
+
+# Cálculo de la FFT para las señales remuestreadas (4 Hz)
+fft.RRlineal = Mod(fft(RRlineal$y))
+fft.RRspline = Mod(fft(RRspline$y))
+
+# Definición del vector de tiempo basado en la longitud de la FFT
+tiempo = 0:(length(fft.RRlineal) - 1)
+
+# Configuración del eje de frecuencias
+FrecuenciaMuestreo = 4
+# Usamos la longitud de la señal remuestreada para DeltaFrec
+N_remuestreo = length(fft.RRlineal)
+DeltaFrecMuestreo = FrecuenciaMuestreo / N_remuestreo
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de la ventana gráfica
+op <- par(mfrow = c(1, 1))
+
+# Gráfico del espectro de potencia (HRV)
+# Ajusté el ylim para que sea dinámico según tus datos, 
+# ya que 30000 puede ser muy alto para nuestro CSV simulado.
+max_val = max(fft.RRlineal[2:(N_remuestreo/2)]) # Ignoramos el componente DC (índice 1)
+
+plot(Frecuencia, fft.RRlineal, type = 'l', 
+     xlim = c(0, 0.5), ylim = c(0, max_val), 
+     col = 'red', main = "Espectro de Frecuencia RR (4Hz)",
+     xlab = "Frecuencia (Hz)", ylab = "Magnitud")
+
+lines(Frecuencia, fft.RRspline, col = 'green')
+
+# Agregamos leyenda para claridad
+legend("bottomleft", legend = c("Lineal", "Spline"), 
+       col = c("red", "green"), lty = 1, bg = "white")
+
+#######################################################################
+# Caso 4: Muestreo uniforme de una ST con muestras perdidas
+library(muStat)
+
+# 1. Cargamos tus datos reales del CSV
+# Usamos los primeros 48 latidos para mantener la escala del ejemplo
+N = 48
+st1 = dato.rr$RR[1:N]
+tiempo = dato.rr$t[1:N]
+
+# 2. Simulación de muestras perdidas
+# Generamos 10 índices aleatorios (latidos que "perdemos")
+set.seed(123) # Para que sea reproducible
+indices_perdidos = sample(5:40, 10)
+st1[indices_perdidos] = NA
+
+# 3. Limpieza de datos (quedarse solo con los valores que existen)
+# Usamos is.finite o !is.na para filtrar los números reales
+st11 = st1[!is.na(st1)]
+tiempo1 = tiempo[!is.na(st1)]
+
+# 4. Primer gráfico: La señal con los "huecos"
+plot(tiempo1, st11, type='l', main="Señal con muestras perdidas", 
+     xlab="Tiempo (s)", ylab="RR (ms)")
+
+# 5. Reconstrucción mediante Splines
+# Intentamos estimar los valores perdidos para volver a tener N puntos
+st2 = spline(tiempo1, st11, n = N)
+
+# 6. Gráfico comparativo final
+# 'b' muestra puntos y líneas. Los huecos se verán vacíos.
+plot(tiempo, st1, type='b', pch=1, main="Reconstrucción de latidos perdidos")
+
+# Superponemos la reconstrucción en rojo (línea punteada lty=2)
+lines(st2$x, st2$y, col='red', lty=2)
+points(st2$x, st2$y, pch=20, col='red')
+
+# Agregamos leyenda
+legend("topright", legend=c("Original (con huecos)", "Reconstrucción Spline"),
+       col=c("black", "red"), lty=c(1, 2), pch=c(1, 20), bg="white")

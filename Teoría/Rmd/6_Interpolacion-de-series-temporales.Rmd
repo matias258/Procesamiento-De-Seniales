@@ -1,0 +1,533 @@
+---
+title: "Interpolación de Series Temporales"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    number_sections: true
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+```
+
+------------------------------------------------------------------------
+
+# Introducción
+
+La **interpolación de series temporales** es una técnica fundamental en el procesamiento de señales que permite estimar valores en instantes de tiempo no muestreados. Se aplica principalmente en tres situaciones:
+
+| Situación | Descripción |
+|------------------------------------|------------------------------------|
+| **Aumentar la frecuencia** | Se necesitan más puntos entre las muestras existentes *(upsampling)* |
+| **Disminuir la frecuencia** | Se quiere reducir la densidad de muestras *(downsampling)* |
+| **Remuestreo uniforme** | La señal original tiene muestras irregulares y se necesita una grilla de tiempo constante |
+| **Datos faltantes** | Hay huecos en la serie y se desean reconstruir los valores perdidos |
+
+En todos estos casos se comparan dos métodos principales:
+
+-   **Interpolación lineal** (`approx`): conecta cada par de puntos con una línea recta. Simple y rápida, pero puede generar esquinas bruscas.\
+-   **Interpolación por splines** (`spline`): ajusta polinomios suaves por tramos. Produce curvas más naturales, especialmente útil cuando la señal es suave.
+
+------------------------------------------------------------------------
+
+# Caso 1 — Aumentar la frecuencia de muestreo *(Upsampling)*
+
+## Contexto
+
+Partimos de una serie de ventas diarias (`localA`) con una muestra por día. El objetivo es **triplicar la frecuencia de muestreo**, pasando de $N$ a $3N$ puntos, para obtener una representación más densa de la señal.
+
+Esto es útil, por ejemplo, si luego se necesita combinar esta serie con otra que tiene mayor resolución temporal, o simplemente para suavizar la visualización.
+
+## Carga de datos
+
+```{r carga-datos}
+# Carga de datos (asumiendo que el CSV está en el mismo directorio)
+dos.locales = read.csv('DosLocales.csv')
+print(names(dos.locales))
+# [1] "X"      "t"      "localA" "localB"
+```
+
+```{r n-original}
+# Aumentar la frecuencia de muestreo
+N = length(dos.locales$localA)
+print(paste('N =', N))
+```
+
+## Interpolación
+
+Se generan dos versiones de la señal con $3N$ puntos: una mediante interpolación lineal y otra mediante splines cúbicos.
+
+```{r interpolaciones-caso1}
+# Interpolación lineal
+localAfal = approx(dos.locales$t, dos.locales$localA, n = 3 * N)
+
+# Interpolación por splines
+localAfas = spline(dos.locales$t, dos.locales$localA, n = 3 * N)
+```
+
+## Visualización
+
+El primer gráfico muestra la serie original sin interpolar, y el segundo superpone los tres: la señal original (negro), la interpolación lineal (rojo) y la spline (azul), con los nuevos puntos interpolados marcados. Se hace zoom en el rango de días 45–55 para apreciar mejor las diferencias.
+
+```{r plot-original-caso1}
+# Visualización de la comparación de interpolaciones
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120))
+```
+
+```{r plot-comparacion-caso1}
+
+# Visualización con leyenda
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Comparación de Métodos de Interpolación', 
+     xlab = 'días', ylab = 'ventas k$', 
+     xlim = c(45, 55), 
+     ylim = c(min(dos.locales$localA[45:55]) - 5, max(dos.locales$localA[45:55]) + 5))
+
+# Agregar puntos originales en negro
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Dibujar líneas verticales discontinuas para marcar los días originales
+for(j in 1:N)
+{
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Graficar interpolación lineal (approx) en rojo
+lines(localAfal$x, localAfal$y, col = 'red', lwd = 1)
+points(localAfal$x, localAfal$y, pch = 20, col = 'red', cex = 0.8)
+
+# Graficar interpolación por splines en azul/puntos verdes
+lines(localAfas$x, localAfas$y, col = 'blue', lwd = 1)
+points(localAfas$x, localAfas$y, pch = 20, col = 'green', cex = 0.8)
+
+# AGREGAR LEYENDA
+legend("topleft", 
+       legend = c("Original", "Interpolación Lineal", "Interpolación Spline"), 
+       col = c("black", "red", "blue"), 
+       lty = c(1, 1, 1),      
+       pch = c(20, 20, 20),   
+       pt.bg = c(NA, NA, "green"), 
+       bty = "o",             
+       bg = "white")          
+       
+   
+```
+
+## Análisis espectral (FFT)
+
+Para verificar que el upsampling no introduce distorsiones en frecuencia, se calcula la **Transformada de Fourier (FFT)** de cada señal. Al triplicar el número de muestras, la amplitud del espectro se escala por 3; por eso las señales interpoladas se dividen por 3 al graficarlas, para que sean comparables con el espectro original.
+
+> Si la interpolación es fiel, los espectros deben solaparse en las frecuencias bajas (donde está la información original) y las señales interpoladas no deben agregar energía espuria en frecuencias altas.
+
+```{r fft-caso1}
+# Cálculo de la FFT y el Módulo
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Definición de vectores de tiempo
+tiempo = 0:(N-1)
+tiempo3 = 0:(3*N-1)
+
+# Configuración de frecuencia para la señal original
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo/N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de frecuencia para la señal interpolada
+FrecuenciaMuestreo = 3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (3*N)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Graficación de los resultados
+plot(Frecuencia, fft.localA, type='l', xlim=c(0,0.1))
+lines(FrecuenciaInterpolada, fft.localAfal / 3, col='red')
+lines(FrecuenciaInterpolada, fft.localAfas / 3, col='green')
+```
+
+------------------------------------------------------------------------
+
+# Caso 2 — Disminuir la frecuencia de muestreo *(Downsampling)*
+
+## Contexto
+
+El proceso inverso: partiendo de $N$ muestras, se reduce a $N/3$ puntos. Esto puede ser necesario para aliviar el peso computacional, sincronizar con otra señal de menor resolución, o simplemente para resumir la información.
+
+El downsampling directo puede introducir **aliasing** si la señal contiene componentes de alta frecuencia. Por eso se presentan dos variantes: **sin filtrado previo** y **con filtrado pasa-bajos previo**.
+
+------------------------------------------------------------------------
+
+## 2a — Downsampling directo (sin filtrado)
+
+```{r downsampling-directo}
+N = length(dos.locales$localA)
+print(paste('N =', N))
+
+# Remuestreo (submuestreo)
+localAfal = approx(dos.locales$t, dos.locales$localA, n = N/3)
+localAfas = spline(dos.locales$t, dos.locales$localA, n = N/3)
+```
+
+```{r plot-downsampling}
+# Gráfico principal
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120)) 
+
+# Puntos originales
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Líneas verticales
+for (j in 1:N) {
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Interpolación lineal
+lines(localAfal$x, localAfal$y, col = 'red')
+points(localAfal$x, localAfal$y, pch = 20, col = 'red')
+
+# Interpolación por spline
+lines(localAfas$x, localAfas$y, col = 'blue')
+points(localAfas$x, localAfas$y, pch = 20, col = 'green')
+
+# --- AGREGANDO LA LEYENDA ---
+legend("topright", 
+       legend = c("Original", "Lineal (approx)", "Spline"), 
+       col = c("black", "red", "blue"), 
+       lty = 1,             
+       pch = 20,            
+       bg = "white",        
+       cex = 0.8)           
+```
+
+### Espectro de magnitud
+
+Al realizar downsampling, la nueva frecuencia de muestreo es $F_s = 1/3$ ciclos/día. Para comparar los espectros correctamente, las señales submuestreadas se multiplican por 3 (compensación de amplitud).
+
+```{r fft-downsampling}
+# Cálculo de la FFT y el Módulo para las tres señales
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Definición de los vectores de tiempo/índices
+tiempo = 0:(N-1)
+tiempo3 = 0:(N/3)
+
+# Configuración de frecuencia para la señal original (Fs = 1)
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo / N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de frecuencia para las señales submuestreadas (Fs = 1/3)
+FrecuenciaMuestreo = 1/3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (N/3)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Configuración de la ventana gráfica (1 fila, 1 columna)
+op <- par(mfrow = c(1, 1))
+
+# Graficación del espectro de magnitud
+plot(Frecuencia, fft.localA, type = 'l', xlim = c(0, 0.1))
+
+# Añadir las líneas de las señales submuestreadas (multiplicadas por 3 para compensar)
+lines(FrecuenciaInterpolada, 3 * fft.localAfal, col = 'red')
+lines(FrecuenciaInterpolada, 3 * fft.localAfas, col = 'green')
+```
+
+------------------------------------------------------------------------
+
+## 2b — Downsampling con filtrado Pasa-Bajos previo
+
+### ¿Por qué filtrar antes de submuestrear?
+
+Antes de reducir la frecuencia de muestreo, es recomendable aplicar un **filtro pasa-bajos** para eliminar las frecuencias altas que, al submuestrear, podrían "doblarse" sobre las frecuencias bajas y corromper la señal (**aliasing**).
+
+Aquí se utiliza un **filtro de media móvil de ventana 7** (`rep(1/7, 7)`), que es uno de los filtros pasa-bajos más sencillos: reemplaza cada valor por el promedio de sus 7 vecinos más cercanos, suavizando las oscilaciones rápidas.
+
+```{r downsampling-filtrado}
+N = length(dos.locales$localA)
+print(paste('N =', N))
+
+# Aplicación de un filtro de media móvil (Filtro Pasa-Bajos)
+# rep(1/7, 7) crea un vector de 7 elementos con valor 1/7 cada uno
+localAma = filter(dos.locales$localA, rep(1/7, 7), circular = TRUE)
+
+# Remuestreo (submuestreo) basado en la señal filtrada
+localAfal = approx(dos.locales$t, localAma, n = N/3)
+localAfas = spline(dos.locales$t, localAma, n = N/3)
+```
+
+```{r plot-downsampling-filtrado}
+# Gráfico de la señal original (línea punteada)
+plot(dos.locales$t, dos.locales$localA, type = 'l', 
+     main = 'Ventas Locales A', xlab = 'dias', ylab = 'ventas k$', 
+     xlim = c(45, 55), ylim = c(80, 120), lty = 3)
+points(dos.locales$t, dos.locales$localA, pch = 20, col = 'black')
+
+# Añadir la señal filtrada (localAma)
+lines(dos.locales$t, localAma, type = 'l')
+points(dos.locales$t, localAma, pch = 20, col = 'black')
+
+# Rejilla de líneas verticales
+for (j in 1:N) {
+  abline(v = j, lty = 2, col = "gray80")
+}
+
+# Interpolación lineal de la señal filtrada (rojo)
+lines(localAfal$x, localAfal$y, col = 'red')
+points(localAfal$x, localAfal$y, pch = 20, col = 'red')
+
+# Interpolación por spline de la señal filtrada (línea azul, puntos verdes)
+lines(localAfas$x, localAfas$y, col = 'blue')
+points(localAfas$x, localAfas$y, pch = 20, col = 'green')
+
+# --- AGREGANDO LA LEYENDA ---
+legend("bottomleft", 
+       legend = c("Original (Punteada)", "Filtrada (MA)", "Interp. Lineal", "Interp. Spline"), 
+       col = c("black", "black", "red", "blue"), 
+       lty = c(3, 1, 1, 1), 
+       pch = 20, 
+       pt.bg = c(NA, NA, NA, "green"), # Opcional: para resaltar el punto verde del spline
+       bg = "white",
+       cex = 0.8)
+```
+
+### Espectro de magnitud (con filtrado previo)
+
+Al comparar este espectro con el del Caso 2a, se puede observar que el filtrado previo **reduce la energía en frecuencias altas** antes del submuestreo, lo cual resulta en un espectro más limpio y sin aliasing.
+
+```{r fft-downsampling-filtrado}
+# Cálculo de la Magnitud de la FFT para las tres señales
+fft.localA = Mod(fft(dos.locales$localA))
+fft.localAfal = Mod(fft(localAfal$y))
+fft.localAfas = Mod(fft(localAfas$y))
+
+# Vectores de tiempo/muestras
+tiempo = 0:(N-1)
+tiempo3 = 0:(N/3)
+
+# Eje de frecuencias para la señal original (Fs = 1)
+FrecuenciaMuestreo = 1
+DeltaFrecMuestreo = FrecuenciaMuestreo / N
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Eje de frecuencias para las señales diezmadas (Fs = 1/3)
+FrecuenciaMuestreo = 1/3
+DeltaFrecMuestreo = FrecuenciaMuestreo / (N/3)
+FrecuenciaInterpolada = DeltaFrecMuestreo * tiempo3
+
+# Configuración del gráfico
+op <- par(mfrow = c(1, 1))
+
+# Gráfico del espectro original
+plot(Frecuencia, fft.localA, type = 'l', xlim = c(0, 0.1))
+
+# Añadir espectros submuestreados con compensación de amplitud (* 3)
+lines(FrecuenciaInterpolada, 3 * fft.localAfal, col = 'red')
+lines(FrecuenciaInterpolada, 3 * fft.localAfas, col = 'green')
+```
+
+------------------------------------------------------------------------
+
+# Caso 3 — Remuestreo uniforme de un tacograma
+
+## Contexto
+
+En el estudio de la **Variabilidad de la Frecuencia Cardíaca (HRV)**, se trabaja con los **intervalos RR**: el tiempo entre latidos consecutivos detectados por un ECG.
+
+El problema es que estos latidos **no ocurren a intervalos de tiempo regulares** — el corazón late de forma variable. Esto da una serie temporal *no uniformemente muestreada*, incompatible con la FFT clásica (que asume muestras equiespaciadas).
+
+La solución es **interpolar la señal RR sobre una grilla de tiempo uniforme**, por ejemplo a 4 Hz (4 muestras por segundo), y recién ahí calcular el espectro de potencia de la HRV.
+
+## Carga y visualización inicial
+
+```{r carga-rr}
+# Lectura del archivo CSV usando una ruta almacenada en la variable 'dir'
+dato.rr = read.csv('RR.csv')
+
+# Imprimir los nombres de las columnas para verificar la carga
+print(names(dato.rr))
+# El resultado esperado es: "t" "RR"
+
+# Graficación de los datos
+# t: tiempo en segundos, RR: intervalo en milisegundos
+plot(dato.rr$t, dato.rr$RR, type='l', ylab='RR (ms)', xlab='tiempo (s)')
+
+# Añadir los puntos a la línea del gráfico
+points(dato.rr$t, dato.rr$RR, pch=20)
+```
+
+## Interpolación a grilla uniforme (4 Hz)
+
+Se calcula cuántas muestras se necesitan para cubrir toda la duración de la señal a 4 Hz: `Nmuestro = 4 × max(t)`. Luego se interpola tanto de forma lineal como por splines.
+
+```{r interpolacion-rr}
+plot(dato.rr$t, dato.rr$RR, type='l', ylab='RR (ms)', xlab='tiempo (s)', 
+     xlim=c(10, 20), ylim=c(600, 1200), main="Interpolación de Tacograma")
+points(dato.rr$t, dato.rr$RR, pch=20)
+
+# Dibujar líneas verticales en cada latido original detectado
+N = length(dato.rr$t)
+for (j in 1:N) {
+  abline(v = dato.rr$t[j], lty = 2, col="gray")
+}
+
+# Nmuestro para una frecuencia de 4 Hz (remuestreo uniforme)
+Nmuestro = as.integer(4 * max(dato.rr$t))
+
+# Interpolaciones
+RRlineal = approx(dato.rr$t, dato.rr$RR, n = Nmuestro)
+RRspline = spline(dato.rr$t, dato.rr$RR, n = Nmuestro)
+
+# Añadir interpolación lineal (rojo)
+lines(RRlineal$x, RRlineal$y, col = 'red')
+points(RRlineal$x, RRlineal$y, pch = 20, col = 'red')
+
+# Añadir interpolación por spline (azul/verde)
+lines(RRspline$x, RRspline$y, col = 'blue')
+points(RRspline$x, RRspline$y, pch = 20, col = 'green')
+
+# Agregamos una leyenda para que sea profesional
+legend("topright", 
+       legend=c("Original", "Lineal (4Hz)", "Spline (4Hz)"),
+       col=c("black", "red", "blue"), 
+       lty=1, pch=20, bg="white", cex=0.8)
+```
+
+## Espectro de potencia (HRV)
+
+Con la señal ya sobre una grilla uniforme de 4 Hz, se puede calcular la FFT y obtener el **espectro de la HRV**. Se visualiza el rango $[0, 0.5]$ Hz, que corresponde a las bandas de interés clínico:
+
+-   **LF** *(Low Frequency)*: 0.04–0.15 Hz → actividad simpática y parasimpática
+-   **HF** *(High Frequency)*: 0.15–0.40 Hz → actividad parasimpática (respiratoria)
+
+```{r fft-rr}
+# Cálculo de la FFT para las señales remuestreadas (4 Hz)
+fft.RRlineal = Mod(fft(RRlineal$y))
+fft.RRspline = Mod(fft(RRspline$y))
+
+# Definición del vector de tiempo basado en la longitud de la FFT
+tiempo = 0:(length(fft.RRlineal) - 1)
+
+# Configuración del eje de frecuencias
+FrecuenciaMuestreo = 4
+# Usamos la longitud de la señal remuestreada para DeltaFrec
+N_remuestreo = length(fft.RRlineal)
+DeltaFrecMuestreo = FrecuenciaMuestreo / N_remuestreo
+Frecuencia = DeltaFrecMuestreo * tiempo
+
+# Configuración de la ventana gráfica
+op <- par(mfrow = c(1, 1))
+
+# Gráfico del espectro de potencia (HRV)
+# Ajusté el ylim para que sea dinámico según tus datos, 
+# ya que 30000 puede ser muy alto para nuestro CSV simulado.
+max_val = max(fft.RRlineal[2:(N_remuestreo/2)]) # Ignoramos el componente DC (índice 1)
+
+plot(Frecuencia, fft.RRlineal, type = 'l', 
+     xlim = c(0, 0.5), ylim = c(0, max_val), 
+     col = 'red', main = "Espectro de Frecuencia RR (4Hz)",
+     xlab = "Frecuencia (Hz)", ylab = "Magnitud")
+
+lines(Frecuencia, fft.RRspline, col = 'green')
+
+# Agregamos leyenda para claridad
+legend("bottomleft", legend = c("Lineal", "Spline"), 
+       col = c("red", "green"), lty = 1, bg = "white")
+```
+
+------------------------------------------------------------------------
+
+# Caso 4 — Reconstrucción de muestras perdidas
+
+## Contexto
+
+En la práctica, es frecuente que una serie temporal tenga **muestras faltantes**: errores de medición, pérdida de paquetes en transmisión, artefactos en el ECG, etc.
+
+En este caso se simulan datos faltantes sobre los primeros 48 latidos del tacograma RR: se seleccionan aleatoriamente 10 latidos y se marcan como `NA`. Luego se usa interpolación por splines para **reconstruir los valores perdidos** y recuperar una señal de $N$ puntos continuos.
+
+> **Nota:** Se usa `set.seed(123)` para que la simulación sea reproducible.
+
+```{r datos-faltantes}
+library(muStat)
+
+# 1. Cargamos tus datos reales del CSV
+# Usamos los primeros 48 latidos para mantener la escala del ejemplo
+N = 48
+st1 = dato.rr$RR[1:N]
+tiempo = dato.rr$t[1:N]
+
+# 2. Simulación de muestras perdidas
+# Generamos 10 índices aleatorios (latidos que "perdemos")
+set.seed(123) # Para que sea reproducible
+indices_perdidos = sample(5:40, 10)
+st1[indices_perdidos] = NA
+
+# 3. Limpieza de datos (quedarse solo con los valores que existen)
+# Usamos is.finite o !is.na para filtrar los números reales
+st11 = st1[!is.na(st1)]
+tiempo1 = tiempo[!is.na(st1)]
+```
+
+## Señal con huecos
+
+El siguiente gráfico muestra la señal después de remover los latidos perdidos. Los **saltos bruscos** en la línea evidencian los puntos faltantes.
+
+```{r plot-huecos}
+# 4. Primer gráfico: La señal con los "huecos"
+plot(tiempo1, st11, type='l', main="Señal con muestras perdidas", 
+     xlab="Tiempo (s)", ylab="RR (ms)")
+```
+
+## Reconstrucción por splines
+
+Se interpola sobre los $N$ instantes originales para recuperar una estimación de los valores perdidos. El resultado se superpone a la señal original (con `NA`s) para evaluar visualmente la calidad de la reconstrucción.
+
+```{r reconstruccion-splines}
+# 5. Reconstrucción mediante Splines
+# Intentamos estimar los valores perdidos para volver a tener N puntos
+st2 = spline(tiempo1, st11, n = N)
+
+# 6. Gráfico comparativo final
+# 'b' muestra puntos y líneas. Los huecos se verán vacíos.
+plot(tiempo, st1, type='b', pch=1, main="Reconstrucción de latidos perdidos")
+
+# Superponemos la reconstrucción en rojo (línea punteada lty=2)
+lines(st2$x, st2$y, col='red', lty=2)
+points(st2$x, st2$y, pch=20, col='red')
+
+# Agregamos leyenda
+legend("topright", legend=c("Original (con huecos)", "Reconstrucción Spline"),
+       col=c("black", "red"), lty=c(1, 2), pch=c(1, 20), bg="white")
+```
+
+------------------------------------------------------------------------
+
+# Resumen
+
+| Caso | Objetivo | Técnica clave |
+|------------------------|------------------------|------------------------|
+| **1** | Aumentar la frecuencia de muestreo | `approx` / `spline` con `n = 3N` |
+| **2a** | Disminuir la frecuencia de muestreo | `approx` / `spline` con `n = N/3` |
+| **2b** | Downsampling sin aliasing | Filtro de media móvil (`filter`) + submuestreo |
+| **3** | Grilla temporal uniforme (HRV) | Interpolación a 4 Hz → FFT |
+| **4** | Reconstrucción de datos faltantes | Spline sobre puntos existentes → `n = N` |
+
+> En general, la **interpolación por splines** produce resultados más suaves y naturales que la lineal, a costa de mayor complejidad computacional. La elección entre ambas depende de la naturaleza de la señal y del uso posterior de los datos.
