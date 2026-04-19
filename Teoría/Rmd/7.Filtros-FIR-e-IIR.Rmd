@@ -1,0 +1,511 @@
+---
+title: "Filtros FIR e IIR"
+subtitle: "Procesamiento de Señales — Análisis en el Dominio de la Frecuencia"
+author: "Clase práctica"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 4.5
+)
+```
+
+------------------------------------------------------------------------
+
+# Introducción
+
+Los **filtros digitales** son herramientas fundamentales en el procesamiento de señales. Permiten atenuar o amplificar determinadas frecuencias de una señal, ya sea para suavizarla, derivarla, o aislar componentes de interés.
+
+En esta práctica estudiamos dos grandes familias de filtros digitales:
+
+| Tipo | Nombre completo | Característica principal |
+|----------------|---------------------|-----------------------------------|
+| **FIR** | *Finite Impulse Response* | La salida depende sólo de entradas pasadas; siempre estable |
+| **IIR** | *Infinite Impulse Response* | La salida depende también de salidas pasadas; más eficiente pero puede ser inestable |
+
+La estrategia es definir cada filtro como un vector de coeficientes, calcular su **Transformada de Fourier (FFT)** y analizar su **respuesta en frecuencia** (cómo afecta a cada frecuencia de la señal).
+
+------------------------------------------------------------------------
+
+# Parte I — Filtros FIR
+
+Un filtro FIR de orden $M$ aplica la siguiente operación a la señal $x$:
+
+$$y[n] = \sum_{k=0}^{M} h[k] \cdot x[n-k]$$
+
+donde $h[k]$ son los **coeficientes del filtro** (pesos). El comportamiento en frecuencia se obtiene directamente como la FFT de esos coeficientes.
+
+```{r parametros-globales}
+# Longitud del vector para la FFT (potencia de 2 para mayor eficiencia)
+N <- 128
+```
+
+------------------------------------------------------------------------
+
+## 1.1 Filtro de Hanning de 3 puntos (`fir3`) vs. Media Móvil (`ma3`)
+
+El **filtro de Hanning de 3 puntos** asigna mayor peso al valor central que a los extremos, lo que lo hace más suave que una media móvil simple:
+
+| Filtro              | Coeficientes          | Interpretación       |
+|---------------------|-----------------------|----------------------|
+| Media móvil (`ma3`) | $[1/3,\; 1/3,\; 1/3]$ | Pesos iguales        |
+| Hanning (`fir3`)    | $[1/4,\; 1/2,\; 1/4]$ | Mayor peso al centro |
+
+Ambos son **filtros pasa-bajos**: atenúan las altas frecuencias. La diferencia está en cuán abruptamente cae la respuesta.
+
+```{r fir3-vs-ma3}
+# Filtro de Hanning de 3 puntos
+fir3      <- rep(0, N)
+fir3[1]   <- 1/4
+fir3[2]   <- 1/2
+fir3[3]   <- 1/4
+
+# Filtro de media móvil de 3 puntos
+ma3       <- rep(0, N)
+ma3[1:3]  <- 1/3
+
+# Respuesta en frecuencia (módulo de la FFT de los coeficientes)
+fft.fir3  <- Mod(fft(fir3))
+fft.ma3   <- Mod(fft(ma3))
+
+# Visualización comparativa
+plot(fft.ma3, type = "l",
+     main = "Respuesta en frecuencia: Hanning 3pt vs. Media Móvil 3pt",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+lines(fft.fir3, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Media Móvil ma3 (pesos iguales)",
+                  "Hanning fir3 (pesos centrados)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** Ambos filtros atenúan las frecuencias altas (pasa-bajos), pero el Hanning lo hace de forma más gradual, con menos **oscilaciones laterales** (*sidelobes*).
+
+------------------------------------------------------------------------
+
+## 1.2 Filtro de 5 puntos (`fir5`) vs. Media Móvil (`ma5`)
+
+Al aumentar el número de puntos a 5, podemos diseñar filtros con una respuesta más selectiva:
+
+```{r fir5-vs-ma5}
+# Filtro FIR de 5 puntos con pesos centrados (suma = 1)
+fir5      <- rep(0, N)
+fir5[1]   <- 0.05
+fir5[2]   <- 0.15
+fir5[3]   <- 0.60
+fir5[4]   <- 0.15
+fir5[5]   <- 0.05
+
+# Filtro de media móvil de 5 puntos
+ma5       <- rep(0, N)
+ma5[1:5]  <- 1/5
+
+# Respuesta en frecuencia
+fft.fir5  <- Mod(fft(fir5))
+fft.ma5   <- Mod(fft(ma5))
+
+# Visualización comparativa
+plot(fft.ma5, type = "l",
+     main = "Respuesta en frecuencia: FIR5 vs. Media Móvil 5pt",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+lines(fft.fir5, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Media Móvil ma5 (pesos iguales)",
+                  "FIR5 (pesos centrados)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** Con 5 puntos la caída en frecuencia es más pronunciada. El FIR5 con pesos concentrados en el centro sigue el perfil de una ventana gaussiana, reduciendo aún más los lóbulos laterales.
+
+------------------------------------------------------------------------
+
+## 1.3 Filtro de Hamming de 5 puntos (`fir5h`)
+
+El **filtro de Hamming** es similar al de Hanning pero incluye coeficientes **negativos** en los extremos. Esto lo convierte en un filtro pasa-bajos con **mejor rechazo de las frecuencias no deseadas**, a costa de introducir una ligera amplificación en ciertas bandas.
+
+$$h = \left[-\tfrac{3}{35},\; \tfrac{12}{35},\; \tfrac{17}{35},\; \tfrac{12}{35},\; -\tfrac{3}{35}\right]$$
+
+```{r fir5h-hamming}
+# Filtro de Hamming de 5 puntos (coeficientes negativos en los extremos)
+fir5h     <- rep(0, N)
+fir5h[1]  <- -3/35
+fir5h[2]  <-  12/35
+fir5h[3]  <-  17/35
+fir5h[4]  <-  12/35
+fir5h[5]  <- -3/35
+
+# Media móvil de 5 puntos (referencia)
+ma5       <- rep(0, N)
+ma5[1:5]  <- 1/5
+
+# Respuesta en frecuencia
+fft.fir5h <- Mod(fft(fir5h))
+fft.ma5   <- Mod(fft(ma5))
+
+# Visualización comparativa
+plot(fft.ma5, type = "l",
+     main = "Respuesta en frecuencia: Hamming 5pt vs. Media Móvil 5pt",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+lines(fft.fir5h, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Media Móvil ma5", "Hamming fir5h"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** Los coeficientes negativos en los extremos provocan que la respuesta del Hamming supere la unidad en algunas frecuencias, actuando como un filtro con **realce** antes de la caída. A diferencia de la media móvil, el rechazo en las frecuencias altas es mucho más pronunciado.
+
+------------------------------------------------------------------------
+
+## 1.4 Filtros FIR como Derivadores
+
+Los filtros FIR también pueden aproximar **derivadas** de la señal. Una derivada amplifica las altas frecuencias (es un **pasa-altos**), por lo que su respuesta en frecuencia crece con la frecuencia.
+
+### Derivadas de 2 y 3 muestras
+
+$$\text{der2: } y[n] = \frac{x[n] - x[n-1]}{2} \qquad \text{der3: } y[n] = \frac{x[n] - x[n-2]}{2}$$
+
+```{r der2-vs-der3}
+# Derivada de 2 muestras: diferencia entre muestra actual y la anterior
+der2 = rep(0, N)
+der2[1] = 0.5
+der2[2] = -0.5
+
+# Derivada de 3 muestras
+der3 = rep(0, N)
+der3[1] = 0.5
+der3[3] = -0.5
+
+# Respuesta en frecuencia
+fft.der2 = Mod(fft(der2))
+fft.der3 = Mod(fft(der3))
+
+# Visualización comparativa
+plot(fft.der2, type = "l",
+     main = "Respuesta en frecuencia: Derivada 2 muestras vs. 3 muestras",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+lines(fft.der3, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Derivada 2 muestras (der2)",
+                  "Derivada 3 muestras (der3)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+### Derivada de 5 muestras (`der4`)
+
+Una derivada de orden superior utiliza más puntos para una estimación más suave de la pendiente:
+
+$$y[n] = \frac{2x[n] + x[n-1] - x[n-3] - 2x[n-4]}{10}$$
+
+```{r der4-vs-der2}
+# Derivada de 5 muestras (ponderada, más robusta al ruido)
+der4      <- rep(0, N)
+der4[1]   <-  2/10
+der4[2]   <-  1/10
+# der4[3] = 0  (implícito)
+der4[4]   <- -1/10
+der4[5]   <- -2/10
+
+# Respuesta en frecuencia
+fft.der4  <- Mod(fft(der4))
+
+# Visualización comparativa
+plot(fft.der2, type = "l",
+     main = "Respuesta en frecuencia: Derivada 2 muestras vs. 5 muestras",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+lines(fft.der4, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Derivada 2 muestras (der2)",
+                  "Derivada 5 muestras (der4)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** La derivada de 5 muestras tiene una respuesta en frecuencia más **suave y lineal** en bajas frecuencias, reduciendo la sensibilidad al ruido de alta frecuencia respecto a la de 2 muestras.
+
+------------------------------------------------------------------------
+
+# Parte II — Filtros IIR
+
+Un filtro IIR introduce **retroalimentación**: la salida en el instante $n$ depende de salidas anteriores. La ecuación general es:
+
+$$y[n] = a \cdot x[n] - b \cdot y[n-1]$$
+
+donde $a$ y $b$ son los coeficientes del filtro. Esto permite lograr respuestas muy selectivas con pocos coeficientes, pero la estabilidad depende críticamente de los valores elegidos (se requiere $|b| < 1$).
+
+```{r iir-setup}
+# Señal de entrada: impulso unitario en la muestra 2
+x     <- rep(0, N)
+x[2]  <- 1
+```
+
+> La señal $x$ es un **impulso unitario** (un único valor distinto de cero). La respuesta del filtro a este impulso se denomina **Respuesta al Impulso** y su FFT es la respuesta en frecuencia del filtro.
+
+------------------------------------------------------------------------
+
+## 2.1 Filtro IIR Pasa-Bajos
+
+Con $a > 0$ y $b < 0$ (es decir, retroalimentación positiva), el filtro acumula la señal y atenúa las variaciones rápidas → **pasa-bajos**.
+
+```{r iir2-lowpass}
+# IIR2: filtro pasa-bajos con a=0.5, b=-0.5
+iir2       <- rep(0, N)
+a <- 0.5;  b <- -0.5
+
+for (n in 2:N) {
+  iir2[n] <- a * x[n] - b * iir2[n-1]
+}
+
+# Respuesta en frecuencia
+fft.iir2 <- Mod(fft(iir2))
+
+plot(fft.iir2, type = "l",
+     main = "Respuesta en frecuencia: IIR pasa-bajos (a=0.5, b=-0.5)",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     col  = "steelblue", lwd = 2)
+```
+
+> **Observación:** La magnitud decrece con la frecuencia → comportamiento **pasa-bajos**. Las bajas frecuencias pasan con alta ganancia, mientras que las altas son atenuadas.
+
+------------------------------------------------------------------------
+
+## 2.2 Comparación de dos filtros IIR pasa-bajos
+
+Cambiando los coeficientes podemos controlar el **ancho de banda** del filtro:
+
+```{r iir2b-comparacion}
+# IIR2b: mayor retroalimentación → banda más estrecha
+iir2b      <- rep(0, N)
+a <- 0.3;  b <- -0.7
+
+for (n in 2:N) {
+  iir2b[n] <- a * x[n] - b * iir2b[n-1]
+}
+
+fft.iir2b <- Mod(fft(iir2b))
+
+# Comparación de los dos filtros pasa-bajos
+plot(fft.iir2, type = "l",
+     main = "Comparación: IIR pasa-bajos con distintos coeficientes",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     ylim = c(0, 1),
+     col  = "steelblue", lwd = 2)
+lines(fft.iir2b, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("IIR2  (a=0.5, b=-0.5) — banda más ancha",
+                  "IIR2b (a=0.3, b=-0.7) — banda más estrecha"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** Al aumentar el coeficiente de retroalimentación $|b|$, el filtro se vuelve más selectivo (corta a frecuencias más bajas), pero también más lento en responder a cambios en la señal.
+
+------------------------------------------------------------------------
+
+## 2.3 Filtros IIR como Derivadores (Pasa-Altos)
+
+Cambiando el signo de $b$ a positivo, el filtro introduce retroalimentación **negativa**, lo que equivale a restar el pasado → **derivador / pasa-altos**.
+
+```{r iir-derivador}
+# IIR derivador: a=0.5, b=0.5 → retroalimentación negativa → pasa-altos
+iir2d      <- rep(0, N)
+a <- 0.5;  b <- 0.5
+
+for (n in 2:N) {
+  iir2d[n] <- a * x[n] - b * iir2d[n-1]
+}
+
+fft.iir2d <- Mod(fft(iir2d))
+
+# Comparación con la derivada FIR de 2 muestras
+plot(fft.der2, type = "l",
+     main = "Comparación: Derivada FIR (2 muestras) vs. IIR derivador",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     ylim = c(0, 1),
+     col  = "steelblue", lwd = 2)
+lines(fft.iir2d, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("FIR der2 (derivada 2 muestras)",
+                  "IIR2d (a=0.5, b=0.5) — derivador IIR"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+------------------------------------------------------------------------
+
+## 2.4 Comparación de derivadores IIR con distintos coeficientes
+
+```{r iir-derivadores-comparacion}
+# IIR derivador con mayor retroalimentación → respuesta más plana en altas frecuencias
+iir2d3     <- rep(0, N)
+a <- 0.3;  b <- 0.7
+
+for (n in 2:N) {
+  iir2d3[n] <- a * x[n] - b * iir2d3[n-1]
+}
+
+fft.iir2d3 <- Mod(fft(iir2d3))
+
+# Comparación de los tres filtros
+plot(fft.iir2, type = "l",
+     main = "Comparación: pasa-bajos vs. derivadores IIR",
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     ylim = c(0, 1),
+     col  = "steelblue", lwd = 2)
+lines(fft.iir2d,  col = "firebrick", lwd = 2)
+lines(fft.iir2d3, col = "darkgreen", lwd = 2)
+legend("topright",
+       legend = c("IIR2  pasa-bajos  (a=0.5, b=-0.5)",
+                  "IIR2d derivador   (a=0.5, b= 0.5)",
+                  "IIR2d3 derivador  (a=0.3, b= 0.7)"),
+       col    = c("steelblue", "firebrick", "darkgreen"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** El cambio de signo en $b$ invierte completamente el comportamiento del filtro: de pasa-bajos a pasa-altos (derivador). Al aumentar $|b|$, el derivador IIR se vuelve más plano en el rango de frecuencias medias-altas.
+
+------------------------------------------------------------------------
+
+# Parte III — Aplicación a Datos Reales
+
+Aplicamos los filtros FIR sobre una serie temporal real contenida en `TS_1.csv`. El objetivo es separar las componentes de **baja frecuencia** (tendencia/suavizado) de las de **alta frecuencia** (variaciones rápidas/derivada).
+
+```{r cargar-datos}
+# Cargar la serie temporal
+dato <- read.csv("TS_1.csv")
+
+# Visualización de la serie original
+plot(dato$t, dato$a, type = "l",
+     xlim = c(0, 260),
+     xlab = "Día", ylab = "a",
+     main = "Serie temporal original",
+     col  = "steelblue", lwd = 1.5)
+```
+
+> Se puede observar que la serie presenta componentes cíclicas superpuestas a una variación de mayor escala.
+
+------------------------------------------------------------------------
+
+## 3.1 Filtro derivador FIR (Pasa-Altos)
+
+Aplicamos el filtro derivador de 3 muestras $h = [0.5, 0, -0.5]$ para **resaltar los cambios rápidos** (altas frecuencias):
+
+```{r aplicar-derivada}
+# Filtro derivador FIR de 3 muestras aplicado a la serie
+der.a <- filter(dato$a, c(0.5, 0, -0.5), circular = TRUE)
+
+# Comparación en el dominio del tiempo
+plot(dato$t, dato$a, type = "l",
+     xlim = c(0, 260), ylim = c(-10, 70),
+     xlab = "Día", ylab = "a",
+     main = "Serie original vs. señal derivada (pasa-altos FIR)",
+     col  = "steelblue", lwd = 1.5)
+lines(der.a, col = "firebrick", lwd = 1.5)
+legend("topright",
+       legend = c("Serie original", "Derivada — pasa-altos FIR"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+```{r fft-derivada}
+# Comparación en el dominio de la frecuencia
+fft.der.a <- Mod(fft(der.a))
+fft.a     <- Mod(fft(dato$a))
+
+plot(fft.a, type = "l",
+     xlim = c(0, 100), ylim = c(0, 1000),
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     main = "Espectro: Serie original vs. señal derivada",
+     col  = "steelblue", lwd = 1.5)
+lines(fft.der.a, col = "firebrick", lwd = 1.5)
+legend("topright",
+       legend = c("FFT serie original",
+                  "FFT señal derivada (pasa-altos)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** En el dominio de la frecuencia se ve claramente cómo el filtro pasa-altos **elimina la componente de baja frecuencia** (la energía en el índice cercano a 0) y preserva las variaciones rápidas.
+
+------------------------------------------------------------------------
+
+## 3.2 Filtro de Hanning (Pasa-Bajos)
+
+Ahora aplicamos el filtro de Hanning $h = [0.25, 0.5, 0.25]$ para **suavizar la señal** y quedarnos con la tendencia (bajas frecuencias):
+
+```{r aplicar-hanning}
+# Filtro de Hanning de 3 puntos (pasa-bajos / suavizador)
+h3.a <- filter(dato$a, c(0.25, 0.5, 0.25), circular = TRUE)
+
+# Comparación en el dominio del tiempo
+plot(dato$t, dato$a, type = "l",
+     xlim = c(0, 260), ylim = c(0, 70),
+     xlab = "Día", ylab = "a",
+     main = "Serie original vs. señal suavizada (pasa-bajos Hanning)",
+     col  = "steelblue", lwd = 1.5)
+lines(h3.a, col = "firebrick", lwd = 2)
+legend("topright",
+       legend = c("Serie original", "Hanning — pasa-bajos FIR"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+```{r fft-hanning}
+# Comparación en el dominio de la frecuencia
+fft.h3.a <- Mod(fft(h3.a))
+fft.a    <- Mod(fft(dato$a))
+
+plot(fft.a, type = "l",
+     xlim = c(0, 100), ylim = c(0, 1000),
+     xlab = "Frecuencia (índice)", ylab = "Magnitud",
+     main = "Espectro: Serie original vs. señal suavizada con Hanning",
+     col  = "steelblue", lwd = 1.5)
+lines(fft.h3.a, col = "firebrick", lwd = 1.5)
+legend("topright",
+       legend = c("FFT serie original",
+                  "FFT señal suavizada (pasa-bajos)"),
+       col    = c("steelblue", "firebrick"),
+       lwd    = 2, bty = "n")
+```
+
+> **Observación:** El filtro de Hanning elimina las altas frecuencias y **preserva la tendencia general** de la serie. En el espectro se puede ver cómo desaparecen los picos de frecuencias medias y altas.
+
+------------------------------------------------------------------------
+
+# Resumen
+
+| Filtro | Tipo | Efecto sobre la señal |
+|----------------|----------------|-----------------------------------------|
+| Media móvil (`ma3`, `ma5`) | FIR pasa-bajos | Suaviza, pero con lóbulos laterales |
+| Hanning (`fir3`) | FIR pasa-bajos | Suaviza con menor ripple |
+| Hamming (`fir5h`) | FIR pasa-bajos | Mayor rechazo de frecuencias altas |
+| Derivada (`der2`, `der3`, `der4`) | FIR pasa-altos | Resalta cambios rápidos |
+| IIR con $b < 0$ | IIR pasa-bajos | Suaviza recursivamente; más selectivo |
+| IIR con $b > 0$ | IIR pasa-altos / derivador | Resalta cambios; respuesta infinita |
+
+La elección entre FIR e IIR depende del contexto:
+
+-   **FIR**: fase lineal, siempre estable, fácil de diseñar.
+-   **IIR**: más eficiente (menos coeficientes para igual selectividad), pero requiere cuidado con la estabilidad.

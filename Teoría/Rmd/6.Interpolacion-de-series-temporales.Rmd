@@ -31,7 +31,7 @@ knitr::opts_chunk$set(
 La **interpolación de series temporales** es una técnica fundamental en el procesamiento de señales que permite estimar valores en instantes de tiempo no muestreados. Se aplica principalmente en tres situaciones:
 
 | Situación | Descripción |
-|----|----|
+|------------------------------------|------------------------------------|
 | **Aumentar la frecuencia** | Se necesitan más puntos entre las muestras existentes *(upsampling)* |
 | **Disminuir la frecuencia** | Se quiere reducir la densidad de muestras *(downsampling)* |
 | **Remuestreo uniforme** | La señal original tiene muestras irregulares y se necesita una grilla de tiempo constante |
@@ -523,7 +523,7 @@ legend("topright", legend=c("Original (con huecos)", "Reconstrucción Spline"),
 # Resumen
 
 | Caso | Objetivo | Técnica clave |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | **1** | Aumentar la frecuencia de muestreo | `approx` / `spline` con `n = 3N` |
 | **2a** | Disminuir la frecuencia de muestreo | `approx` / `spline` con `n = N/3` |
 | **2b** | Downsampling sin aliasing | Filtro de media móvil (`filter`) + submuestreo |
