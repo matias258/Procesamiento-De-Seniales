@@ -1,0 +1,236 @@
+---
+title: "Procesamiento Tiempo-Frecuencia"
+subtitle: "Análisis mediante Transformada Wavelet Discreta"
+author: "Señales y Sistemas"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+library(wavethresh)
+```
+
+------------------------------------------------------------------------
+
+# Motivación
+
+Cuando analizamos señales no estacionarias —es decir, señales cuya frecuencia varía a lo largo del tiempo— la **Transformada de Fourier** presenta una limitación fundamental: nos dice *qué* frecuencias están presentes en la señal, pero **no nos dice en qué momento** ocurren.
+
+El **análisis tiempo-frecuencia** surge como solución: buscamos una representación que capture simultáneamente información temporal e información espectral. En esta práctica usaremos la **Transformada Wavelet Discreta (DWT)** para lograr exactamente eso.
+
+------------------------------------------------------------------------
+
+# Construcción de las señales
+
+## Parámetros generales
+
+Trabajamos con señales de $N = 512$ muestras.
+
+```{r params}
+N      <- 512
+tiempo <- 0:(N - 1)
+```
+
+## Señales sinusoidales base
+
+Definimos dos sinusoides de distintas frecuencias:
+
+-   **sA**: frecuencia baja ($k = 4$), activa solo en la *segunda mitad* de la señal.
+-   **sB**: frecuencia alta ($k = 24$), activa solo en la *primera mitad* de la señal.
+
+```{r senales}
+sA <- sin(4  * 2 * pi * tiempo / N)
+sB <- sin(24 * 2 * pi * tiempo / N)
+
+# sA se anula en la primera mitad
+sA[1:(N/2)] <- 0
+# sB se anula en la segunda mitad
+sB[(N/2):N] <- 0
+```
+
+```{r plot-sA-sB, fig.height=4, fig.cap="Señal sA (izq.): sinusoide de baja frecuencia activa en la segunda mitad. Señal sB (der.): sinusoide de alta frecuencia activa en la primera mitad."}
+par(mfrow = c(1, 2))
+plot(tiempo, sA, type = "l", ylab = "sA", xlab = "Tiempo",
+     main = "Señal sA  (baja frecuencia, 2da mitad)", col = "#2c7bb6")
+plot(tiempo, sB, type = "l", ylab = "sB", xlab = "Tiempo",
+     main = "Señal sB  (alta frecuencia, 1ra mitad)", col = "#d7191c")
+par(mfrow = c(1, 1))
+```
+
+## Señal combinada
+
+La señal $s_{AB} = s_A + s_B$ combina ambas componentes, cada una en su ventana temporal. La señal resultante **no es estacionaria**: su contenido frecuencial cambia en el tiempo. Sin embargo, si aplicáramos la Transformada de Fourier, solo veríamos la presencia de ambas frecuencias sin ninguna referencia temporal.
+
+```{r senal-combinada, fig.cap="Señal combinada sAB. Se observa el cambio de frecuencia aparente en la mitad de la señal."}
+sAB <- sA + sB
+plot(tiempo, sAB, type = "l", ylab = "sAB", xlab = "Tiempo",
+     main = "Señal combinada sAB", col = "#1a1a2e")
+```
+
+> **¿Por qué Fourier no alcanza?** Al integrar sobre todo el tiempo, la DFT mezcla la información de ambas mitades. El resultado mostraría dos picos de frecuencia (en $k=4$ y $k=24$), pero sería imposible saber cuál ocurre primero ni en qué instante cambia la señal.
+
+------------------------------------------------------------------------
+
+# Transformada Wavelet Discreta (DWT)
+
+## Principio del algoritmo piramidal de Mallat
+
+La DWT descompone la señal de forma iterativa mediante un **banco de filtros**:
+
+1.  Se aplica un **filtro pasa-bajos** → coeficientes de **aproximación** $C_j$
+2.  Se aplica un **filtro pasa-altos** → coeficientes de **detalle** $D_j$
+3.  Se submuestrea por 2 y se repite el proceso sobre $C_j$
+
+En cada nivel $j$ se reduce a la mitad el número de muestras pero se duplica la resolución espectral de esa banda. El proceso termina cuando queda una sola muestra. Esto genera una representación jerárquica **tiempo-escala** (equivalente a tiempo-frecuencia).
+
+Usamos **wavelets de Daubechies de fase extrema, orden 4** (`DaubExPhase`, `filter.number = 4`): un filtro compacto con buenas propiedades de regularidad y localización.
+
+## Descomposición de sA
+
+```{r wd-sA, fig.cap="Descomposición wavelet de sA. La energía se concentra en los niveles de baja frecuencia (resoluciones inferiores) y aparece exclusivamente en la segunda mitad del tiempo, reflejando la estructura temporal de la señal."}
+
+wd.sA <- wd(sA, filter.number = 4, family = "DaubExPhase")
+plot(wd.sA, main = "DWT de sA")
+```
+
+En el gráfico de la DWT, el eje vertical representa el **nivel de resolución** y el horizontal el **tiempo**. Para `sA`, la energía aparece en los niveles de baja frecuencia (resoluciones bajas, numeradas 2-3) y únicamente en la segunda mitad temporal, tal como esperábamos.
+
+## Descomposición de sB
+
+```{r wd-sB, fig.cap="Descomposición wavelet de sB. La energía se concentra en los niveles de alta frecuencia y en la primera mitad del tiempo."}
+
+wd.sB <- wd(sB, filter.number = 4, family = "DaubExPhase")
+plot(wd.sB, main = "DWT de sB")
+```
+
+Para `sB`, la energía se ubica en las resoluciones altas (niveles 5-6) y en la primera mitad de la señal.
+
+## Descomposición de la señal combinada sAB
+
+```{r wd-sAB, fig.cap="Descomposición wavelet de sAB. Se distinguen claramente dos regiones: alta frecuencia en la primera mitad (niveles 5-6) y baja frecuencia en la segunda mitad (niveles 2-3)."}
+
+wd.sAB <- wd(sAB, filter.number = 4, family = "DaubExPhase")
+plot(wd.sAB, main = "DWT de sAB")
+```
+
+La DWT de `sAB` revela lo que Fourier no podría mostrarnos: **qué frecuencia ocurre en qué momento**. En la primera mitad se concentra la energía de alta frecuencia ($s_B$), y en la segunda mitad la de baja frecuencia ($s_A$).
+
+> **Compromiso tiempo-frecuencia:** La DWT no tiene resolución perfecta en ambos dominios simultáneamente (principio de incertidumbre). En niveles bajos (baja frecuencia) hay buena resolución espectral pero poca temporal, y viceversa. Aun así, la ganancia frente a la DFT es sustancial para señales no estacionarias.
+
+------------------------------------------------------------------------
+
+# Recorrido paso a paso por el algoritmo piramidal
+
+A continuación inspeccionamos nivel a nivel los coeficientes de **aproximación** $C_j$ y de **detalle** $D_j$ de la descomposición de `sAB`. Recordemos:
+
+-   $C_j$: resultado del filtro pasa-bajos → contiene la información que *pasa* a la siguiente etapa.
+-   $D_j$: resultado del filtro pasa-altos → captura el *detalle* extraído en esa etapa.
+
+## Nivel 8 — Señal original submuestreada
+
+```{r nivel8, fig.height=3.5, fig.cap="Nivel 8: aproximación C8 (toda la señal) y primer detalle D8 (alta frecuencia). La aproximación preserva la forma global; el detalle muestra la componente de muy alta frecuencia activa en la primera mitad."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 8), main = "C8 — Aproximación nivel 8",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 8), main = "D8 — Detalle nivel 8",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 7
+
+```{r nivel7, fig.height=3.5, fig.cap="Nivel 7: el detalle D7 sigue mostrando la alta frecuencia en la primera mitad, con la mitad de muestras respecto al nivel anterior."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 7), main = "C7 — Aproximación nivel 7",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 7), main = "D7 — Detalle nivel 7",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 6
+
+```{r nivel6, fig.height=3.5, fig.cap="Nivel 6: la alta frecuencia comienza a 'desdibujarse' — la resolución temporal empieza a ser insuficiente para representarla con nitidez."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 6), main = "C6 — Aproximación nivel 6",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 6), main = "D6 — Detalle nivel 6",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 5
+
+```{r nivel5, fig.height=3.5, fig.cap="Nivel 5: la alta frecuencia continúa desvaneciéndose. La aproximación C5 empieza a enfocarse en las componentes de baja frecuencia."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 5), main = "C5 — Aproximación nivel 5",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 5), main = "D5 — Detalle nivel 5",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 4
+
+```{r nivel4, fig.height=3.5, fig.cap="Nivel 4: transición clave. La alta frecuencia desaparece de los detalles y comienza a emerger la baja frecuencia de sA en la segunda mitad."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 4), main = "C4 — Aproximación nivel 4",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 4), main = "D4 — Detalle nivel 4",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 3
+
+```{r nivel3, fig.height=3.5, fig.cap="Nivel 3: la baja frecuencia de sA aparece claramente en D3, localizada en la segunda mitad temporal. Alta resolución espectral, baja resolución temporal."}
+
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 3), main = "C3 — Aproximación nivel 3",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 3), main = "D3 — Detalle nivel 3",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+## Nivel 2 — Última descomposición
+
+```{r nivel2, fig.height=3.5, fig.cap="Nivel 2: quedan muy pocas muestras. La señal converge hacia su componente de continua (valor medio). Los detalles prácticamente no tienen energía."}
+par(mfrow = c(1, 2))
+plot.ts(accessC(wd.sAB, level = 2), main = "C2 — Aproximación nivel 2",
+        ylab = "Amplitud", xlab = "Muestra")
+plot.ts(accessD(wd.sAB, level = 2), main = "D2 — Detalle nivel 2",
+        ylab = "Amplitud", xlab = "Muestra")
+par(mfrow = c(1, 1))
+```
+
+------------------------------------------------------------------------
+
+# Resumen conceptual
+
+| Nivel | Tipo de frecuencia capturada | Observación                  |
+|-------|------------------------------|------------------------------|
+| 8–7   | Muy alta frecuencia          | Activa en la 1ra mitad (sB)  |
+| 6–5   | Alta frecuencia              | sB se desvanece gradualmente |
+| 4     | Transición                   | Desaparece sB, emerge sA     |
+| 3–2   | Baja frecuencia              | Activa en la 2da mitad (sA)  |
+
+**Conclusión:** La DWT permite localizar simultáneamente *cuándo* y *en qué banda de frecuencia* ocurre un evento en la señal. A diferencia de la DFT, que colapsa toda la información temporal, la representación wavelet es inherentemente bidimensional (tiempo × escala), lo que la hace ideal para el análisis de señales no estacionarias.
