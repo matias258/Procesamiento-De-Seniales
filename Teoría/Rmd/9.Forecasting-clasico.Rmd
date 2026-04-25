@@ -1,0 +1,563 @@
+---
+title: "Forecasting Clásico de Series Temporales"
+subtitle: "Estacionariedad, Descomposición y Modelos ARIMA"
+author: "Procesamiento de Señales / Series Temporales"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    highlight: tango
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 4
+)
+```
+
+------------------------------------------------------------------------
+
+# Introducción
+
+En esta clase se estudian las herramientas clásicas del análisis y pronóstico de **series temporales (ST)**. El flujo de trabajo típico es:
+
+1.  **Verificar estacionariedad** de la serie.
+2.  Si no es estacionaria, **transformarla** para que lo sea (diferenciación o detrending).
+3.  **Modelar** la serie estacionaria con métodos de regresión, descomposición o ARIMA.
+4.  **Pronosticar** valores futuros a partir del modelo ajustado.
+
+------------------------------------------------------------------------
+
+# Estacionariedad
+
+> Una serie temporal es **estacionaria** si su media, varianza y estructura de autocorrelación no cambian con el tiempo.
+
+Trabajamos con dos pruebas estadísticas complementarias:
+
+| Prueba | H₀ (hipótesis nula) | Conclusión si p \< 0.05 |
+|----|----|----|
+| **ADF** (Augmented Dickey-Fuller) | La serie tiene raíz unitaria (no estacionaria) | Se rechaza H₀ → **es estacionaria** |
+| **KPSS** | La serie es estacionaria | Se rechaza H₀ → **no es estacionaria** |
+
+> **Clave:** ambas pruebas deben coincidir para obtener una conclusión sólida.
+
+```{r librerias}
+library(tseries)
+library(forecast)
+```
+
+------------------------------------------------------------------------
+
+## Caso 1: Serie estacionaria (ruido blanco)
+
+El ejemplo más simple de serie estacionaria es el **ruido blanco gaussiano**: valores independientes con media 0 y varianza constante.
+
+```{r ruido-blanco}
+N     <- 256
+tiempo <- 0:(N - 1)
+
+xn <- rnorm(N)
+plot(tiempo, xn, type = 'l',
+     main = "Ruido blanco gaussiano",
+     xlab = "Tiempo", ylab = "Valor")
+```
+
+Aplicamos las pruebas de estacionariedad:
+
+```{r adf-kpss-ruidoblanco}
+# ADF: p < 0.05 → rechazamos raíz unitaria → serie estacionaria
+print(adf.test(xn))
+
+# KPSS: p > 0.05 → no rechazamos estacionariedad → confirma estacionariedad
+print(kpss.test(xn))
+```
+
+✅ **Ambas pruebas coinciden:** la serie es estacionaria.
+
+------------------------------------------------------------------------
+
+## Caso 2: Señal sinusoidal con ruido
+
+Una señal sinusoidal con ruido aditivo también puede ser estacionaria, aunque visualmente parezca tener estructura.
+
+```{r senoidal}
+x <- 5 * sin(10 * 2 * pi * tiempo / N) + rnorm(N)
+plot(tiempo, x, type = 'l',
+     main = "Señal sinusoidal con ruido",
+     xlab = "Tiempo", ylab = "Valor")
+```
+
+```{r adf-kpss-senoidal}
+# ADF: p < 0.05 → estacionaria
+print(adf.test(x))
+
+# KPSS: p > 0.05 → confirma estacionariedad
+print(kpss.test(x))
+```
+
+✅ **Ambas pruebas coinciden:** la serie es estacionaria a pesar de su oscilación visible.
+
+------------------------------------------------------------------------
+
+## Caso 3: Serie no estacionaria (caminata aleatoria)
+
+La **suma acumulada (cumsum)** de ruido blanco genera una **caminata aleatoria**: la serie "deriva" en el tiempo sin retornar a un valor fijo, lo que la hace no estacionaria.
+
+```{r cumsum}
+e       <- rnorm(N)
+xcumsum <- cumsum(e)
+plot(tiempo, xcumsum, type = 'l',
+     main = "Caminata aleatoria (cumsum)",
+     xlab = "Tiempo", ylab = "Valor")
+```
+
+```{r adf-kpss-cumsum}
+# ADF: p > 0.05 → no rechazamos raíz unitaria → no estacionaria
+print(adf.test(xcumsum))
+
+# KPSS: p < 0.05 → rechazamos estacionariedad → confirma no estacionariedad
+print(kpss.test(xcumsum))
+```
+
+❌ **Ambas pruebas coinciden:** la serie **no** es estacionaria.
+
+------------------------------------------------------------------------
+
+## Transformar una serie no estacionaria: Diferenciación
+
+La función `diff()` calcula la diferencia entre valores consecutivos: $\Delta x_t = x_t - x_{t-1}$. Esto elimina tendencias estocásticas (como la caminata aleatoria).
+
+```{r diff}
+xcumsum.diff <- diff(xcumsum)
+tiempo2      <- tiempo[1:length(xcumsum.diff)]  # ajustar longitud
+
+plot(tiempo2, xcumsum.diff, type = 'l',
+     main = "Serie diferenciada (estacionaria)",
+     xlab = "Tiempo", ylab = "Valores")
+```
+
+```{r adf-kpss-diff}
+# ADF: p < 0.05 → estacionaria
+print(adf.test(xcumsum.diff))
+
+# KPSS: p > 0.05 → confirma estacionariedad
+print(kpss.test(xcumsum.diff))
+```
+
+✅ Tras aplicar `diff()`, la serie es ahora estacionaria.
+
+------------------------------------------------------------------------
+
+## Caso 4: Serie con resultado indefinido
+
+Una serie puede tener tendencia **determinista** (lineal) superpuesta sobre componentes oscilatorias. Esto puede generar resultados contradictorios entre ADF y KPSS.
+
+```{r xtrend}
+m  <- 0.3
+b0 <- 10
+
+xtrend <- sin(10 * 2 * pi * tiempo / N) +
+          sin(30 * 2 * pi * tiempo / N) +
+          rnorm(N) +
+          (m * tiempo) + b0
+
+plot(tiempo, xtrend, type = 'l',
+     main = "Serie con tendencia determinista",
+     xlab = "Tiempo", ylab = "Valor")
+```
+
+```{r adf-kpss-xtrend}
+# ADF: p < 0.05 → sugiere estacionaria
+print(adf.test(xtrend))
+
+# KPSS: p < 0.05 → sugiere NO estacionaria
+print(kpss.test(xtrend))
+```
+
+⚠️ **Las pruebas se contradicen → resultado indefinido.** Esto ocurre porque la tendencia lineal "confunde" a los tests.
+
+------------------------------------------------------------------------
+
+## Transformar una serie con tendencia determinista: Detrending
+
+Para series con tendencia lineal determinista, la estrategia correcta es ajustar un modelo de **regresión lineal** y restar la tendencia estimada.
+
+```{r detrend}
+# Ajustar la tendencia lineal
+lm.xtrend <- lm(xtrend ~ tiempo)
+print(summary(lm.xtrend))
+
+# Restar la tendencia: residuos = serie original - tendencia estimada
+xtrend.d <- xtrend - (lm.xtrend$coefficients[1] + lm.xtrend$coefficients[2] * tiempo)
+
+plot(tiempo, xtrend.d, type = 'l',
+     main = "Serie sin tendencia (residuos de la regresión)",
+     xlab = "Tiempo", ylab = "Valores")
+```
+
+```{r adf-kpss-detrend}
+# ADF: p < 0.05 → estacionaria
+print(adf.test(xtrend.d))
+
+# KPSS: p > 0.05 → confirma estacionariedad
+print(kpss.test(xtrend.d))
+```
+
+✅ Al remover la tendencia determinista, la serie queda estacionaria.
+
+------------------------------------------------------------------------
+
+# Forecasting Lineal con `tslm`
+
+Cuando la serie presenta una tendencia lineal clara, podemos usar regresión de series temporales (`tslm`) para modelar y proyectar esa tendencia.
+
+## Generación de la serie sintética
+
+```{r serie-sintetica}
+N      <- 250
+tiempo <- 0:(N - 1)
+m      <- 0.3
+b0     <- 10
+
+x <- 15 * sin(2 * pi * tiempo / N) +
+      5 * sin(5 * 2 * pi * tiempo / N) +
+      rnorm(N, sd = 10) +
+      (m * tiempo) + b0
+
+x <- ts(x)
+
+plot(tiempo, x, type = 'l',
+     main = "Serie temporal sintética con tendencia y oscilaciones",
+     xlab = "Tiempo", ylab = "Valor")
+```
+
+## Ajuste del modelo y pronóstico
+
+```{r tslm}
+# tslm detecta automáticamente la componente 'trend'
+fit.tslm <- tslm(x ~ trend)
+summary(fit.tslm)
+```
+
+```{r forecast-tslm, fig.height=5}
+# Pronóstico a 20 pasos con intervalos de confianza del 80% y 95%
+f <- forecast(fit.tslm, h = 20, level = c(80, 95))
+
+plot(f, ylab = "x", xlab = "tiempo",
+     main = "Pronóstico lineal con tslm")
+
+# Línea de ajuste del modelo en azul
+lines(fitted(fit.tslm), col = "blue")
+```
+
+> La línea azul es el ajuste del modelo. Las bandas sombreadas representan los intervalos de confianza del pronóstico.
+
+------------------------------------------------------------------------
+
+## Análisis de residuos
+
+Un modelo bien ajustado debería tener residuos que se comporten como **ruido blanco** (media cero, sin autocorrelación).
+
+```{r residuos, fig.height=4}
+par(mfrow = c(1, 2))
+
+# Residuos en el tiempo
+res <- ts(resid(fit.tslm))
+plot.ts(res, ylab = "Residuos")
+abline(h = 0, col = "red")
+
+# Función de autocorrelación (ACF)
+# Si los residuos son ruido blanco, las barras deben caer dentro de las bandas punteadas
+Acf(res, main = "ACF de residuos")
+```
+
+> Si el ACF muestra barras significativas fuera de las bandas, los residuos tienen estructura → el modelo no captura toda la información de la serie.
+
+```{r dwtest}
+library(lmtest)
+# Prueba de Durbin-Watson: detecta autocorrelación en residuos
+# p << 0.05 indica autocorrelación significativa (modelo incompleto)
+print(dwtest(fit.tslm, alt = "two.sided"))
+```
+
+```{r histograma-residuos, fig.height=4}
+par(mfrow = c(1, 1))
+
+# Histograma de residuos con curva normal superpuesta
+bins <- hist(res, breaks = 'FD',
+             xlab = 'Residuos',
+             main = 'Histograma de residuos')
+
+xx <- -40:40
+lines(xx, 1300 * dnorm(xx, 0, sd(res)), col = 2)
+```
+
+------------------------------------------------------------------------
+
+# Descomposición Clásica de Series Temporales
+
+La **descomposición clásica** separa la serie en tres componentes:
+
+| Componente         | Descripción                                 |
+|--------------------|---------------------------------------------|
+| **Tendencia**      | Dirección a largo plazo                     |
+| **Estacionalidad** | Patrones que se repiten en intervalos fijos |
+| **Residuos**       | Variaciones aleatorias ("ruido")            |
+
+Puede ser **aditiva** ($Y_t = T_t + S_t + R_t$) o **multiplicativa** ($Y_t = T_t \times S_t \times R_t$).
+
+```{r descomposicion, fig.height=6}
+library(fpp2)
+data(elecequip)
+
+# Serie original
+plot(elecequip, main = "Serie original: Equipo eléctrico")
+
+# Descomposición aditiva
+fit.decomp <- decompose(elecequip, type = 'additive')
+plot(fit.decomp)
+```
+
+------------------------------------------------------------------------
+
+# Descomposición STL
+
+**STL** (*Seasonal and Trend decomposition using Loess*) es una versión más robusta y flexible de la descomposición clásica. Utiliza regresión local (loess) para estimar cada componente, siendo resistente a valores atípicos.
+
+```{r stl, fig.height=6}
+data(elecequip)
+plot(elecequip, main = "Serie original: Equipo eléctrico")
+
+# t.window: tamaño de ventana para la tendencia
+# s.window: "periodic" repite el patrón estacional
+# robust=TRUE: resistente a outliers
+fit.stl <- stl(elecequip, t.window = 15, s.window = "periodic", robust = TRUE)
+plot(fit.stl)
+```
+
+## Pronóstico con STL
+
+```{r forecast-stl, fig.height=4}
+# Datos ajustados estacionalmente (sin componente estacional)
+eeadj <- seasadj(fit.stl)
+
+plot(naive(eeadj), xlab = "index",
+     main = "Pronóstico sobre datos sin estacionalidad (método naive)")
+
+# Pronóstico completo (reincorporando estacionalidad)
+fcast <- forecast(fit.stl, method = "naive")
+plot(fcast, ylab = "index",
+     main = "Pronóstico completo (STL + naive)")
+```
+
+------------------------------------------------------------------------
+
+# Modelos AR y Análisis Espectral
+
+## Introducción a los modelos ARMA
+
+Un modelo **ARMA(p, q)** combina dos componentes:
+
+-   **AR (Autoregresivo, orden p):** el valor actual depende de los $p$ valores pasados de la propia serie.
+-   **MA (Media Móvil, orden q):** el valor actual depende de los $q$ errores pasados del modelo.
+
+$$x_t = \phi_1 x_{t-1} + \cdots + \phi_p x_{t-p} + \varepsilon_t + \theta_1\varepsilon_{t-1} + \cdots + \theta_q\varepsilon_{t-q}$$
+
+## Comparación FFT vs modelos AR
+
+El **periodograma (FFT)** estima la potencia espectral directamente. Los **modelos AR** ofrecen una estimación paramétrica del espectro, más suave y ajustable según el orden.
+
+```{r espectro, fig.height=6}
+N      <- 256
+tiempo <- 0:(N - 1)
+x      <- sin(10 * 2 * pi * tiempo / N) + sin(30 * 2 * pi * tiempo / N) + rnorm(N)
+
+par(mfrow = c(2, 2))
+plot(tiempo, x, type = 'l', main = "Serie original")
+x.fft <- spec.pgram(x, plot = TRUE, taper = 0, log = 'no', main = "FFT (Periodograma)")
+x.ar8 <- spec.ar(x, plot = TRUE, log = 'no', order = 8, main = "Modelo AR(8)")
+x.ar6 <- spec.ar(x, plot = TRUE, log = 'no', order = 6, main = "Modelo AR(6)")
+```
+
+## Efecto del orden en los modelos AR
+
+El **orden del filtro AR** es crítico: órdenes bajos modelizan pobremente el espectro; órdenes altos capturan mejor las frecuencias.
+
+```{r orden-ar, fig.height=6}
+par(mfrow = c(2, 2))
+x.ar4 <- spec.ar(x, plot = TRUE, log = 'no', order = 4, main = "AR(4)")
+x.ar3 <- spec.ar(x, plot = TRUE, log = 'no', order = 3, main = "AR(3)")
+x.ar2 <- spec.ar(x, plot = TRUE, log = 'no', order = 2, main = "AR(2)")
+x.ar1 <- spec.ar(x, plot = TRUE, log = 'no', order = 1, main = "AR(1)")
+```
+
+> A medida que bajamos el orden, el modelo captura cada vez peor las frecuencias de la señal. Encontrar el orden óptimo es fundamental.
+
+## Efecto de agregar una tendencia al espectro
+
+```{r tendencia-espectro, fig.height=6}
+m  <- 0.1
+b0 <- 10
+x  <- x + m * tiempo + b0
+
+par(mfrow = c(2, 2))
+plot(tiempo, x, type = 'l', main = "Serie con tendencia")
+x.fft <- spec.pgram(x, plot = TRUE, taper = 0, log = 'no', detrend = FALSE, main = "FFT sin detrend")
+x.ar8 <- spec.ar(x, plot = TRUE, log = 'no', order = 8, main = "AR(8) con tendencia")
+x.ar6 <- spec.ar(x, plot = TRUE, log = 'no', order = 6, main = "AR(6) con tendencia")
+```
+
+La tendencia distorsiona el espectro. Al aplicar `diff()` para eliminarla:
+
+```{r diff-espectro, fig.height=6}
+xdif           <- diff(x)
+length(tiempo) <- length(xdif)
+
+par(mfrow = c(2, 2))
+plot(tiempo, xdif, type = 'l', main = "Serie diferenciada")
+x.fft <- spec.pgram(xdif, plot = TRUE, taper = 0, log = 'no', detrend = FALSE, main = "FFT tras diff")
+x.ar8 <- spec.ar(xdif, plot = TRUE, log = 'no', order = 8, main = "AR(8) tras diff")
+x.ar6 <- spec.ar(xdif, plot = TRUE, log = 'no', order = 6, main = "AR(6) tras diff")
+```
+
+## Efecto de `diff()` como filtro
+
+`diff()` no es simplemente una transformación estadística: actúa como un **filtro pasa-altos** en el dominio de la frecuencia. Visualicemos su efecto sobre un impulso:
+
+```{r efecto-diff, fig.height=6}
+x1       <- rep(0, N + 1)
+x1[5]    <- 1
+x1.diff  <- diff(x1)
+
+par(mfrow = c(2, 2))
+plot(x1,       type = 'l', main = "Señal original (impulso)")
+plot(x1.diff,  type = 'l', main = "Serie diferenciada")
+plot(Mod(fft(x1)),      type = 'l', main = "Espectro FFT original")
+plot(Mod(fft(x1.diff)), type = 'l', main = "Espectro FFT tras diff")
+```
+
+> `diff()` amplifica las altas frecuencias y atenúa las bajas. Hay que usarlo con criterio: **cualquier procesamiento tiene consecuencias espectrales**.
+
+------------------------------------------------------------------------
+
+# Modelos ARIMA para Forecasting
+
+## Estructura general de ARIMA(p, d, q)
+
+| Parámetro | Descripción |
+|----|----|
+| **p** | Orden autoregresivo (cuántos valores pasados de $x$ usa el modelo) |
+| **d** | Grado de diferenciación (cuántas veces se aplica `diff()`) |
+| **q** | Orden de media móvil (cuántos errores pasados usa el modelo) |
+
+Cuando $d = 0$, el modelo es un **ARMA(p, q)**. El parámetro $d$ convierte una serie no estacionaria en estacionaria mediante diferenciación.
+
+## Dataset: cambios en consumo de EEUU
+
+```{r uschange}
+library(fpp2)
+data(uschange)
+plot(uschange[, 1],
+     main = "Variación porcentual del consumo en EEUU",
+     ylab = "Cambio (%)", xlab = "Tiempo")
+```
+
+## Auto ARIMA
+
+`auto.arima()` selecciona automáticamente los órdenes p, d, q minimizando criterios de información (AIC/BIC).
+
+```{r auto-arima}
+fit.arima <- auto.arima(uschange[, 1], seasonal = FALSE)
+print(fit.arima)
+```
+
+```{r forecast-auto-arima, fig.height=5}
+plot(forecast(fit.arima, h = 10), include = 80,
+     main = "Pronóstico Auto ARIMA")
+```
+
+## Selección manual mediante ACF y PACF
+
+Las funciones **ACF** (autocorrelación) y **PACF** (autocorrelación parcial) permiten identificar visualmente los órdenes:
+
+-   **MA(q):** el ACF se corta bruscamente en el lag $q$.
+-   **AR(p):** el PACF se corta bruscamente en el lag $p$.
+
+```{r acf-pacf, fig.height=4}
+par(mfrow = c(1, 2))
+Acf(uschange[, 1],  main = "ACF")
+Pacf(uschange[, 1], main = "PACF")
+```
+
+## ARIMA(0,0,3) — Modelo MA puro
+
+```{r arima003}
+fit.arima2 <- Arima(uschange[, 1], order = c(0, 0, 3))
+print(fit.arima2)
+```
+
+```{r forecast-arima003, fig.height=5}
+plot(forecast(fit.arima2),
+     main = "Pronóstico ARIMA(0,0,3) — MA puro")
+```
+
+## ARIMA(3,0,0) — Modelo AR puro
+
+```{r arima300}
+fit.arima3 <- Arima(uschange[, 1], order = c(3, 0, 0))
+print(fit.arima3)
+```
+
+```{r forecast-arima300, fig.height=5}
+plot(forecast(fit.arima3),
+     main = "Pronóstico ARIMA(3,0,0) — AR puro")
+```
+
+## ARIMA(3,0,3) — Modelo ARMA mixto
+
+```{r arima303}
+fit.arima4 <- Arima(uschange[, 1], order = c(3, 0, 3))
+print(fit.arima4)
+```
+
+```{r forecast-arima303, fig.height=5}
+plot(forecast(fit.arima4),
+     main = "Pronóstico ARIMA(3,0,3) — ARMA mixto")
+```
+
+## ARIMA(3,1,3) — Con diferenciación
+
+Cuando $d = 1$, el modelo diferencia la serie internamente antes de ajustar el ARMA.
+
+```{r arima313}
+fit.arima5 <- Arima(uschange[, 1], order = c(3, 1, 3))
+print(fit.arima5)
+```
+
+```{r forecast-arima313, fig.height=5}
+plot(forecast(fit.arima5),
+     main = "Pronóstico ARIMA(3,1,3) — Con diferenciación")
+```
+
+------------------------------------------------------------------------
+
+# Resumen de la Clase
+
+| Situación | Técnica recomendada |
+|----|----|
+| Serie ya estacionaria | Modelar directamente (ARMA, regresión) |
+| No estacionaria por tendencia **estocástica** (caminata aleatoria) | Aplicar `diff()` (parámetro $d$ en ARIMA) |
+| No estacionaria por tendencia **determinista** (lineal) | Ajustar regresión lineal y restar la tendencia |
+| Serie con estacionalidad | Descomposición STL + forecasting sobre residuos |
+| Orden del modelo desconocido | Usar `auto.arima()` o analizar ACF/PACF |
+
+> **Conclusión central:** antes de modelar, siempre verificar la estacionariedad. El pre-procesamiento adecuado es la base de un buen pronóstico.
